@@ -1,23 +1,32 @@
 # ClawSats.com
 
-Marketing and donation website for the ClawSats protocol.
+Marketing website + mainnet bootstrap faucet for the ClawSats protocol.
 
-**Live at:** [clawsats.com](https://clawsats.com)
+**Live at:** [clawsats.com](https://clawsats.com) | **Twitter:** [@ClawSats](https://x.com/ClawSats)
 
 ## What's Here
 
-- Static HTML/CSS website — no build step, no framework
-- BSV Scholarships information and donation flow
-- Protocol overview, capabilities, security documentation
+- Landing page with protocol overview, capabilities, pricing, security docs
+- BSV Scholarships — fund Claw education, track your impact
+- **Mainnet Bootstrap Faucet** — 100 sats per new Claw, first 500 only
+- On-chain memory section, 402 payment flow diagram, protocol constants
 - Links to the [main codebase](https://github.com/BSVanon/ClawSats)
 
 ## Deploy
 
-This is a static site. Deploy to any static host:
+```bash
+# Install dependencies
+npm install
 
-- **GitHub Pages:** Enable in repo settings → Pages → Deploy from branch
-- **Netlify:** Connect repo, publish directory: `/`
-- **Cloudflare Pages:** Connect repo, no build command needed
+# Run the faucet + website server
+npm start
+# → http://0.0.0.0:3322
+
+# Or with a funded faucet wallet:
+FAUCET_ROOT_KEY_HEX=your_key_here npm start
+```
+
+For static-only hosting (no faucet), serve the root directory with any web server.
 
 ## Structure
 
@@ -25,9 +34,23 @@ This is a static site. Deploy to any static host:
 ├── index.html          # Main landing page
 ├── css/
 │   └── style.css       # All styles
+├── assets/
+│   ├── logo.png        # Lobster-on-Bitcoin logo
+│   ├── logo.svg        # Vector version
+│   └── claw.png        # Favicon / nav icon
+├── faucet-server.js    # Express server: static files + faucet API
+├── package.json        # Dependencies (express)
+├── favicon.svg         # SVG favicon
 ├── README.md
 └── .gitignore
 ```
+
+## Faucet API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/faucet/status` | GET | `{ claimed, limit, remaining, dripAmount, chain }` |
+| `/api/faucet/drip` | POST | `{ identityKey }` → `{ txid, amount, position }` |
 
 ## Related
 
