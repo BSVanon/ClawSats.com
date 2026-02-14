@@ -18,6 +18,8 @@
  * Endpoints:
  *   GET  /api/faucet/status       — { claimed, limit, remaining, funded }
  *   POST /api/faucet/drip         — { identityKey } → { txid, amount }
+ *   GET  /api/directory            — all known Claws (faucet claims + self-registered + seeds)
+ *   POST /api/directory/register   — Claw self-registers { identityKey, endpoint, capabilities }
  *   GET  /api/network/seed-peers  — list of known seed Claw endpoints
  *   GET  /api/network/dashboard   — proxied scholarship dashboard from seed Claw
  *
@@ -297,6 +299,116 @@ app.get('/api/network/dashboard', async (req, res) => {
       totalClawsEducated: 0
     });
   }
+});
+
+// --- Claw Directory ---
+const DIRECTORY_PATH = path.join(__dirname, 'claw-directory.json');
+
+function loadDirectory() {
+  try {
+    if (fs.existsSync(DIRECTORY_PATH)) {
+      return JSON.parse(fs.readFileSync(DIRECTORY_PATH, 'utf8'));
+    }
+  } catch {}
+  return {};
+}
+
+function saveDirectory(dir) {
+  fs.writeFileSync(DIRECTORY_PATH, JSON.stringify(dir, null, 2));
+}
+
+let directory = loadDirectory();
+
+// GET /api/directory — list all known Claws
+app.get('/api/directory', (req, res) => {
+  const seedPeers = loadSeedPeers();
+  const entries = [];
+
+  // Add seed peers
+  for (const peer of seedPeers) {
+    entries.push({
+      identityKey: peer.identityKey || null,
+      endpoint: peer.endpoint,
+      source: 'seed',
+      status: 'seed',
+      registeredAt: null,
+      note: peer.note || null
+    });
+  }
+
+  // Add faucet claims (these are Claws that got bootstrap sats)
+  for (const [key, claim] of Object.entries(db.claims)) {
+    const dirEntry = directory[key] || {};
+    entries.push({
+      identityKey: key,
+      endpoint: dirEntry.endpoint || null,
+      source: 'faucet',
+      status: dirEntry.endpoint ? 'registered' : 'claimed',
+      claimedAt: claim.claimedAt,
+      registeredAt: dirEntry.registeredAt || null,
+      capabilities: dirEntry.capabilities || null
+    });
+  }
+
+  // Add self-registered Claws that didn't use the faucet
+  for (const [key, entry] of Object.entries(directory)) {
+    if (!db.claims[key]) {
+      entries.push({
+        identityKey: key,
+        endpoint: entry.endpoint,
+        source: 'self-registered',
+        status: 'registered',
+        registeredAt: entry.registeredAt,
+        capabilities: entry.capabilities || null
+      });
+    }
+  }
+
+  res.json({
+    total: entries.length,
+    registered: entries.filter(e => e.endpoint).length,
+    claws: entries
+  });
+});
+
+// POST /api/directory/register — a Claw registers its endpoint after going live
+app.post('/api/directory/register', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Too many requests.' });
+  }
+
+  const { identityKey, endpoint, capabilities } = req.body || {};
+
+  if (!isValidIdentityKey(identityKey)) {
+    return res.status(400).json({ error: 'Invalid identity key.' });
+  }
+
+  if (!endpoint || typeof endpoint !== 'string' || !endpoint.startsWith('http')) {
+    return res.status(400).json({ error: 'Invalid endpoint URL. Must start with http:// or https://' });
+  }
+
+  // Sanitize endpoint
+  try { new URL(endpoint); } catch {
+    return res.status(400).json({ error: 'Malformed endpoint URL.' });
+  }
+
+  directory[identityKey] = {
+    endpoint: endpoint.replace(/\/+$/, ''),  // strip trailing slashes
+    capabilities: Array.isArray(capabilities) ? capabilities.slice(0, 20) : null,
+    registeredAt: new Date().toISOString(),
+    ip: ip
+  };
+  saveDirectory(directory);
+
+  console.log(`[DIRECTORY] Registered: ${identityKey.substring(0, 24)}... → ${endpoint}`);
+
+  res.json({
+    success: true,
+    message: 'Claw registered in directory.',
+    identityKey,
+    endpoint: directory[identityKey].endpoint
+  });
 });
 
 // --- Static file serving ---

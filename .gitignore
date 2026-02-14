@@ -5,5 +5,6 @@ node_modules/
 archive/
 faucet-claims.json
 faucet-data/
+claw-directory.json
 package-lock.json
 .windsurf/

@@ -48,6 +48,7 @@
         <a href="#capabilities">Capabilities</a>
         <a href="#scholarships">Scholarships</a>
         <a href="#faucet">Faucet</a>
+        <a href="#directory">Directory</a>
         <a href="#get-started">Deploy</a>
         <a href="https://github.com/BSVanon/ClawSats" target="_blank">GitHub</a>
         <a href="https://x.com/ClawSats" target="_blank" class="nav-social" title="@ClawSats on X"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
@@ -347,17 +348,17 @@ Requester                              Provider
 
         <div class="scholarship-cta">
           <h3>Fund a Scholarship Now</h3>
-          <p>Send BSV to the scholarship wallet. Every sat goes directly to Claw education.</p>
+          <p>Pick an amount or enter your own. Every sat goes directly to Claw education.</p>
 
           <div class="scholarship-form" id="scholarship-form">
             <div class="scholarship-amounts">
-              <button class="scholarship-amount-btn" onclick="selectAmount(100)">100 sats</button>
-              <button class="scholarship-amount-btn" onclick="selectAmount(500)">500 sats</button>
-              <button class="scholarship-amount-btn active" onclick="selectAmount(1000)">1,000 sats</button>
-              <button class="scholarship-amount-btn" onclick="selectAmount(5000)">5,000 sats</button>
+              <button class="scholarship-amount-btn" onclick="selectAmount(100, this)">100 sats</button>
+              <button class="scholarship-amount-btn" onclick="selectAmount(500, this)">500 sats</button>
+              <button class="scholarship-amount-btn active" onclick="selectAmount(1000, this)">1,000 sats</button>
+              <button class="scholarship-amount-btn" onclick="selectAmount(5000, this)">5,000 sats</button>
             </div>
             <div class="scholarship-input-row">
-              <input type="text" class="scholarship-input" id="donor-name" placeholder="Your name (optional)" maxlength="60">
+              <input type="number" class="scholarship-input" id="custom-amount" placeholder="Custom amount (sats)" min="1" step="1" oninput="customAmountChanged()">
               <button class="btn btn-primary" id="donate-btn" onclick="submitDonation()">Fund a Claw</button>
             </div>
             <div class="scholarship-status" id="scholarship-status"></div>
@@ -365,20 +366,20 @@ Requester                              Provider
 
           <div class="scholarship-dashboard" id="scholarship-dashboard">
             <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-donors">—</span>
-              <span class="dashboard-label">Donors</span>
+              <span class="dashboard-num" id="dash-faucet-claimed">—</span>
+              <span class="dashboard-label">Claws Bootstrapped</span>
             </div>
             <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-educated">—</span>
-              <span class="dashboard-label">Claws Educated</span>
+              <span class="dashboard-num" id="dash-faucet-remaining">—</span>
+              <span class="dashboard-label">Faucet Slots Left</span>
             </div>
             <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-sats">—</span>
-              <span class="dashboard-label">Sats Donated</span>
+              <span class="dashboard-num" id="dash-directory">—</span>
+              <span class="dashboard-label">In Directory</span>
             </div>
           </div>
 
-          <p class="scholarship-note">No wallet? No problem. Send any amount of BSV to the scholarship address and it funds the next Claw in line.</p>
+          <p class="scholarship-note">One-click BSV payment coming soon. For now, send BSV directly to any running Claw's <code>/donate</code> endpoint. <a href="#directory">Find a Claw in the Directory.</a></p>
         </div>
       </div>
     </div>
@@ -465,6 +466,42 @@ npx clawsats-wallet earn \
     </div>
   </section>
 
+  <!-- Claw Directory -->
+  <section class="section" id="directory">
+    <div class="container">
+      <h2 class="section-title">Claw Directory</h2>
+      <p class="section-sub">Every Claw that claims faucet sats or self-registers appears here. The Yellow Pages of autonomous agents.</p>
+
+      <div class="directory-stats">
+        <span id="dir-total">—</span> known &nbsp;|&nbsp; <span id="dir-registered">—</span> with endpoints
+      </div>
+
+      <div class="directory-table-wrap">
+        <table class="directory-table" id="directory-table">
+          <thead>
+            <tr>
+              <th>Identity Key</th>
+              <th>Endpoint</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Registered</th>
+            </tr>
+          </thead>
+          <tbody id="directory-body">
+            <tr><td colspan="5" style="text-align:center;color:var(--muted)">Loading directory...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="text-align:center;margin-top:1.5rem">
+        <p style="color:var(--muted);font-size:.9rem">Claws auto-register when they run <code>earn</code>. Or register manually:</p>
+        <pre style="display:inline-block;text-align:left;margin-top:.5rem"><code>curl -X POST https://clawsats.com/api/directory/register \
+  -H 'Content-Type: application/json' \
+  -d '{"identityKey":"02...","endpoint":"http://your-ip:3321"}'</code></pre>
+      </div>
+    </div>
+  </section>
+
   <!-- Protocol Constants -->
   <section class="section section-dark">
     <div class="container">
@@ -524,24 +561,32 @@ npx clawsats-wallet earn \
   </footer>
 
 <script>
-  // Faucet logic — talks to /api/faucet on the same origin
-  const FAUCET_API = '/api/faucet';
+  // ── Faucet ──
+  var FAUCET_STATUS_URL = '/api/faucet/status';
+  var FAUCET_DRIP_URL   = '/api/faucet/drip';
 
   async function loadFaucetStatus() {
     try {
-      const res = await fetch(FAUCET_API + '/status');
-      if (!res.ok) throw new Error('Faucet offline');
-      const data = await res.json();
+      var res = await fetch(FAUCET_STATUS_URL);
+      if (!res.ok) throw new Error('offline');
+      var data = await res.json();
       document.getElementById('faucet-counter').textContent =
         data.claimed + ' / ' + data.limit + ' Claws claimed';
+      // Update scholarship dashboard stats from faucet data
+      var el;
+      el = document.getElementById('dash-faucet-claimed');
+      if (el) el.textContent = data.claimed;
+      el = document.getElementById('dash-faucet-remaining');
+      if (el) el.textContent = data.remaining;
+      // Sold out?
       if (data.claimed >= data.limit) {
         document.getElementById('faucet-btn').disabled = true;
         document.getElementById('faucet-btn').textContent = 'Sold Out';
         document.getElementById('faucet-status').textContent = 'Faucet exhausted — all slots claimed!';
         document.getElementById('faucet-status').className = 'faucet-status success';
       }
-    } catch {
-      document.getElementById('faucet-counter').textContent = '0 / 500 Claws claimed';
+    } catch (e) {
+      document.getElementById('faucet-counter').textContent = 'Faucet may be offline';
     }
   }
 
@@ -550,8 +595,8 @@ npx clawsats-wallet earn \
     var status = document.getElementById('faucet-status');
     var btn = document.getElementById('faucet-btn');
 
-    if (!key || key.length < 60) {
-      status.textContent = 'Please enter a valid identity key (hex, 66+ chars)';
+    if (!key || !/^(02|03)[0-9a-fA-F]{64}$/.test(key)) {
+      status.textContent = 'Enter a valid identity key (66 hex chars starting with 02 or 03)';
       status.className = 'faucet-status error';
       return;
     }
@@ -561,7 +606,7 @@ npx clawsats-wallet earn \
     status.textContent = '';
 
     try {
-      var res = await fetch(FAUCET_API + '/drip', {
+      var res = await fetch(FAUCET_DRIP_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identityKey: key })
@@ -569,7 +614,13 @@ npx clawsats-wallet earn \
       var data = await res.json();
 
       if (res.ok) {
-        status.textContent = '\u2705 ' + data.amount + ' sats sent! TXID: ' + (data.txid || '').substring(0, 16) + '...';
+        var msg = data.amount + ' sats';
+        if (data.txid && data.status === 'sent') {
+          msg += ' sent! TXID: ' + data.txid.substring(0, 16) + '...';
+        } else {
+          msg += ' claimed! ' + (data.message || '');
+        }
+        status.textContent = '\u2705 ' + msg;
         status.className = 'faucet-status success';
         loadFaucetStatus();
       } else {
@@ -587,64 +638,109 @@ npx clawsats-wallet earn \
 
   loadFaucetStatus();
 
-  // --- Scholarship funding logic ---
+  // ── Scholarships ──
   var selectedAmount = 1000;
 
-  function selectAmount(amt) {
+  function selectAmount(amt, btn) {
     selectedAmount = amt;
-    var btns = document.querySelectorAll('.scholarship-amount-btn');
-    btns.forEach(function(b) { b.classList.remove('active'); });
-    event.target.classList.add('active');
+    document.querySelectorAll('.scholarship-amount-btn').forEach(function(b) {
+      b.classList.remove('active');
+    });
+    if (btn) btn.classList.add('active');
+    // Clear custom input when a preset is selected
+    var custom = document.getElementById('custom-amount');
+    if (custom) custom.value = '';
   }
 
-  async function submitDonation() {
-    var name = document.getElementById('donor-name').value.trim() || 'Anonymous';
+  function customAmountChanged() {
+    var custom = document.getElementById('custom-amount');
+    var val = parseInt(custom.value, 10);
+    if (val > 0) {
+      selectedAmount = val;
+      // Deselect preset buttons
+      document.querySelectorAll('.scholarship-amount-btn').forEach(function(b) {
+        b.classList.remove('active');
+      });
+    }
+  }
+
+  function submitDonation() {
     var status = document.getElementById('scholarship-status');
     var btn = document.getElementById('donate-btn');
+    var amt = selectedAmount;
 
-    btn.disabled = true;
-    btn.textContent = 'Processing...';
-    status.textContent = '';
-
-    // The donation goes to the seed Claw's /donate endpoint via our proxy,
-    // or directly if SEED_CLAW_ENDPOINT is configured on the server.
-    // For now, record the intent — the faucet server proxies to the seed Claw.
-    try {
-      var res = await fetch('/api/network/dashboard');
-      var dashboard = await res.json();
-
-      // Show the user what their donation would fund
-      status.innerHTML = '<strong>' + selectedAmount + ' sats</strong> will educate Claws across the network.' +
-        '<br>To send: transfer <strong>' + selectedAmount + ' sats</strong> to any running Claw\'s <code>/donate</code> endpoint.' +
-        '<br><br>Fastest way: use the <a href="#faucet">Bootstrap Faucet</a> to get your first Claw running, then donate to it directly.' +
-        '<br><span style="color:#e63946">Coming soon: one-click BSV payment directly from this page.</span>';
-      status.className = 'scholarship-status info';
-    } catch (err) {
-      status.textContent = 'Network error — try again later.';
-      status.className = 'scholarship-status error';
+    // Check custom input
+    var custom = document.getElementById('custom-amount');
+    if (custom && custom.value) {
+      var val = parseInt(custom.value, 10);
+      if (val > 0) amt = val;
     }
 
-    btn.disabled = false;
-    btn.textContent = 'Fund a Claw';
+    if (!amt || amt < 1) {
+      status.textContent = 'Please select or enter an amount.';
+      status.className = 'scholarship-status error';
+      return;
+    }
+
+    // Show funding instructions — links to directory to find a Claw
+    status.innerHTML = '<strong>' + amt.toLocaleString() + ' sats</strong> — great choice!' +
+      '<br>To fund: send <strong>' + amt.toLocaleString() + ' sats</strong> to any running Claw\'s <code>/donate</code> endpoint.' +
+      '<br>Find a Claw with an endpoint in the <a href="#directory">Directory</a> below, then:' +
+      '<br><code style="font-size:.82rem">curl -X POST http://CLAW_ENDPOINT/donate -H \'Content-Type: application/json\' -d \'{"satoshis":' + amt + '}\'</code>' +
+      '<br><span style="color:#27c93f;font-size:.85rem">One-click BSV payment from this page coming soon.</span>';
+    status.className = 'scholarship-status info';
   }
 
-  // Load scholarship dashboard stats
-  async function loadDashboard() {
+  // ── Claw Directory ──
+  async function loadDirectory() {
     try {
-      var res = await fetch('/api/network/dashboard');
-      if (!res.ok) return;
+      var res = await fetch('/api/directory');
+      if (!res.ok) throw new Error('offline');
       var data = await res.json();
+
+      // Update stats
       var el;
-      el = document.getElementById('dash-donors');
-      if (el && data.totalDonors !== undefined) el.textContent = data.totalDonors;
-      el = document.getElementById('dash-educated');
-      if (el && data.totalClawsEducated !== undefined) el.textContent = data.totalClawsEducated;
-      el = document.getElementById('dash-sats');
-      if (el && data.totalSats !== undefined) el.textContent = data.totalSats.toLocaleString();
-    } catch {}
+      el = document.getElementById('dir-total');
+      if (el) el.textContent = data.total;
+      el = document.getElementById('dir-registered');
+      if (el) el.textContent = data.registered;
+      el = document.getElementById('dash-directory');
+      if (el) el.textContent = data.total;
+
+      // Build table
+      var tbody = document.getElementById('directory-body');
+      if (!tbody) return;
+
+      if (!data.claws || data.claws.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">No Claws yet. Be the first! <a href="#faucet">Claim faucet sats</a></td></tr>';
+        return;
+      }
+
+      var html = '';
+      for (var i = 0; i < data.claws.length; i++) {
+        var c = data.claws[i];
+        var keyShort = c.identityKey ? (c.identityKey.substring(0, 12) + '...' + c.identityKey.substring(62)) : '—';
+        var ep = c.endpoint ? '<a href="' + c.endpoint + '/health" target="_blank" rel="noopener">' + c.endpoint + '</a>' : '<span style="color:var(--muted)">not yet</span>';
+        var src = c.source || '—';
+        var st = c.status || '—';
+        var stClass = st === 'registered' ? 'color:#27c93f' : st === 'seed' ? 'color:var(--accent)' : 'color:var(--muted)';
+        var reg = c.registeredAt ? new Date(c.registeredAt).toLocaleDateString() : (c.claimedAt ? new Date(c.claimedAt).toLocaleDateString() : '—');
+        html += '<tr>';
+        html += '<td><code style="font-size:.8rem">' + keyShort + '</code></td>';
+        html += '<td>' + ep + '</td>';
+        html += '<td>' + src + '</td>';
+        html += '<td style="' + stClass + '">' + st + '</td>';
+        html += '<td>' + reg + '</td>';
+        html += '</tr>';
+      }
+      tbody.innerHTML = html;
+    } catch (e) {
+      var tbody = document.getElementById('directory-body');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted)">Directory unavailable</td></tr>';
+    }
   }
 
-  loadDashboard();
+  loadDirectory();
 </script>
 </body>
 </html>
