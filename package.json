@@ -5,11 +5,14 @@
   "main": "faucet-server.js",
   "scripts": {
     "start": "node faucet-server.js",
-    "dev": "node faucet-server.js"
+    "dev": "node faucet-server.js",
+    "smoke": "bash scripts/smoke-api.sh",
+    "verify": "npm install && npm run smoke"
   },
   "dependencies": {
-    "@bsv/sdk": "^2.1.0",
-    "@bsv/wallet-toolbox": "^0.5.0",
+    "@bsv/sdk": "^2.0.3",
+    "@bsv/wallet-toolbox": "^2.0.14",
+    "dotenv": "^16.4.7",
     "express": "^4.18.2"
   }
 }

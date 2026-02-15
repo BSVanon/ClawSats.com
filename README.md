@@ -17,6 +17,7 @@ Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats
 
 ```bash
 npm install
+npm run smoke
 
 # Run without a funded wallet (claims recorded, sats pending):
 npm start
@@ -48,6 +49,8 @@ The same wallet handles both faucet drips and scholarship distributions. The ser
 enough balance for remaining faucet slots before distributing scholarship funds.
 
 For static-only hosting (no faucet), serve the root directory with any web server.
+
+If only `/api/faucet/status` works and the other `/api/*` routes return 404, you're likely running a legacy faucet server build. Deploy this repository's current `faucet-server.js` and re-run `npm run smoke`.
 
 ## Structure
 
