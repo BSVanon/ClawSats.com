@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * ClawSats Bootstrap Faucet + Scholarship Proxy — Mainnet
+ * ClawSats Bootstrap Faucet + Scholarship Fund + Claw Directory — Mainnet
  *
  * Drips mainnet sats to new Claws via BRC-100 wallet (createAction).
- * Also proxies scholarship donations to a running Claw's /donate endpoint.
+ * Manages the general scholarship fund: humans send BSV to the wallet address
+ * (displayed as QR code on the website), server distributes to eligible Claws.
  *
  * Limits:
  *   - 1 drip per identity key
@@ -16,15 +17,15 @@
  *   SEED_CLAW_ENDPOINT    — URL of a running Claw for scholarship proxying (optional)
  *
  * Endpoints:
- *   GET  /api/faucet/status          — { claimed, limit, remaining, funded }
- *   POST /api/faucet/drip            — { identityKey } → { txid, amount }
- *   GET  /api/directory               — all known Claws (faucet claims + self-registered + seeds)
- *   POST /api/directory/register      — Claw self-registers { identityKey, endpoint, capabilities }
- *   GET  /api/scholarships/status     — general fund status (donated, distributed, pending, eligible)
- *   POST /api/scholarships/donate     — { satoshis, donor? } → add to general fund
- *   POST /api/scholarships/distribute — trigger auto-distribution across eligible Claws
- *   GET  /api/network/seed-peers      — list of known seed Claw endpoints
- *   GET  /api/network/dashboard       — proxied scholarship dashboard from seed Claw
+ *   GET  /api/faucet/status            — { claimed, limit, remaining, funded }
+ *   POST /api/faucet/drip              — { identityKey } → { txid, amount }
+ *   GET  /api/directory                — all known Claws (faucet claims + self-registered + seeds)
+ *   POST /api/directory/register       — Claw self-registers { identityKey, endpoint, capabilities }
+ *   GET  /api/scholarships/address     — BSV address for QR code donations
+ *   GET  /api/scholarships/status      — { walletBalance, totalDistributed, eligibleClaws }
+ *   POST /api/scholarships/distribute  — distribute wallet balance across eligible Claws
+ *   GET  /api/network/seed-peers       — list of known seed Claw endpoints
+ *   GET  /api/network/dashboard        — proxied scholarship dashboard from seed Claw
  *
  * Run: FAUCET_ROOT_KEY_HEX=<key> node faucet-server.js
  * The faucet also serves the static website files.
