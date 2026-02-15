@@ -16,12 +16,15 @@
  *   SEED_CLAW_ENDPOINT    — URL of a running Claw for scholarship proxying (optional)
  *
  * Endpoints:
- *   GET  /api/faucet/status       — { claimed, limit, remaining, funded }
- *   POST /api/faucet/drip         — { identityKey } → { txid, amount }
- *   GET  /api/directory            — all known Claws (faucet claims + self-registered + seeds)
- *   POST /api/directory/register   — Claw self-registers { identityKey, endpoint, capabilities }
- *   GET  /api/network/seed-peers  — list of known seed Claw endpoints
- *   GET  /api/network/dashboard   — proxied scholarship dashboard from seed Claw
+ *   GET  /api/faucet/status          — { claimed, limit, remaining, funded }
+ *   POST /api/faucet/drip            — { identityKey } → { txid, amount }
+ *   GET  /api/directory               — all known Claws (faucet claims + self-registered + seeds)
+ *   POST /api/directory/register      — Claw self-registers { identityKey, endpoint, capabilities }
+ *   GET  /api/scholarships/status     — general fund status (donated, distributed, pending, eligible)
+ *   POST /api/scholarships/donate     — { satoshis, donor? } → add to general fund
+ *   POST /api/scholarships/distribute — trigger auto-distribution across eligible Claws
+ *   GET  /api/network/seed-peers      — list of known seed Claw endpoints
+ *   GET  /api/network/dashboard       — proxied scholarship dashboard from seed Claw
  *
  * Run: FAUCET_ROOT_KEY_HEX=<key> node faucet-server.js
  * The faucet also serves the static website files.
@@ -408,6 +411,200 @@ app.post('/api/directory/register', (req, res) => {
     message: 'Claw registered in directory.',
     identityKey,
     endpoint: directory[identityKey].endpoint
+  });
+});
+
+// --- General Scholarship Fund ---
+// Humans donate to a general fund. The fund auto-distributes sats across
+// Claws in the directory that have endpoints (i.e., are actually running).
+// This jumpstarts the Claw economy without requiring humans to pick a Claw.
+
+const FUND_PATH = path.join(__dirname, 'scholarship-fund.json');
+
+function loadFund() {
+  try {
+    if (fs.existsSync(FUND_PATH)) {
+      return JSON.parse(fs.readFileSync(FUND_PATH, 'utf8'));
+    }
+  } catch {}
+  return {
+    totalDonated: 0,
+    totalDistributed: 0,
+    donations: [],
+    distributions: [],
+    pendingBalance: 0
+  };
+}
+
+function saveFund(fund) {
+  fs.writeFileSync(FUND_PATH, JSON.stringify(fund, null, 2));
+}
+
+let fund = loadFund();
+
+// GET /api/scholarships/status — fund status
+app.get('/api/scholarships/status', (req, res) => {
+  const dirEntries = Object.entries(directory).filter(([_, e]) => e.endpoint);
+  res.json({
+    totalDonated: fund.totalDonated,
+    totalDistributed: fund.totalDistributed,
+    pendingBalance: fund.pendingBalance,
+    totalDonations: fund.donations.length,
+    totalDistributions: fund.distributions.length,
+    eligibleClaws: dirEntries.length,
+    recentDonations: fund.donations.slice(-10).reverse(),
+    recentDistributions: fund.distributions.slice(-10).reverse()
+  });
+});
+
+// POST /api/scholarships/donate — record a donation to the general fund
+// In production this would accept a BRC-105 payment to the faucet wallet.
+// For now it records intent + amount. The faucet operator funds the wallet
+// manually and the server distributes from the wallet balance.
+app.post('/api/scholarships/donate', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Too many requests.' });
+  }
+
+  const { satoshis, donor } = req.body || {};
+  const amount = parseInt(satoshis, 10);
+
+  if (!amount || amount < 1) {
+    return res.status(400).json({ error: 'Invalid amount. Minimum 1 satoshi.' });
+  }
+
+  const donationId = `sch-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const donation = {
+    donationId,
+    donor: donor || 'anonymous',
+    satoshis: amount,
+    createdAt: new Date().toISOString()
+  };
+
+  fund.donations.push(donation);
+  fund.totalDonated += amount;
+  fund.pendingBalance += amount;
+  saveFund(fund);
+
+  console.log(`[SCHOLARSHIP] Donation: ${amount} sats from ${donation.donor} (${donationId})`);
+
+  res.json({
+    status: 'accepted',
+    donationId,
+    satoshis: amount,
+    message: `Thank you! ${amount} sats added to the general scholarship fund.`,
+    fundStatus: {
+      totalDonated: fund.totalDonated,
+      pendingBalance: fund.pendingBalance,
+      totalDistributed: fund.totalDistributed
+    }
+  });
+});
+
+// POST /api/scholarships/distribute — trigger distribution of pending fund balance
+// Splits the pending balance equally across all Claws with registered endpoints.
+// Each Claw gets a drip from the faucet wallet (if funded) or a recorded claim.
+app.post('/api/scholarships/distribute', async (req, res) => {
+  if (fund.pendingBalance < 1) {
+    return res.json({ distributed: 0, message: 'No pending balance to distribute.' });
+  }
+
+  // Find eligible Claws: those with endpoints in the directory
+  const eligible = [];
+  for (const [key, entry] of Object.entries(directory)) {
+    if (entry.endpoint) {
+      eligible.push({ identityKey: key, endpoint: entry.endpoint });
+    }
+  }
+  // Also include faucet claims that have endpoints
+  for (const [key, claim] of Object.entries(db.claims)) {
+    const dirEntry = directory[key];
+    if (dirEntry && dirEntry.endpoint && !eligible.find(e => e.identityKey === key)) {
+      eligible.push({ identityKey: key, endpoint: dirEntry.endpoint });
+    }
+  }
+
+  if (eligible.length === 0) {
+    return res.json({
+      distributed: 0,
+      message: 'No eligible Claws with endpoints. Claws must register in the directory first.',
+      pendingBalance: fund.pendingBalance
+    });
+  }
+
+  // Split evenly, minimum 1 sat per Claw
+  const perClaw = Math.max(1, Math.floor(fund.pendingBalance / eligible.length));
+  const totalToDistribute = Math.min(perClaw * eligible.length, fund.pendingBalance);
+
+  // Shuffle eligible list for fairness
+  for (let i = eligible.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
+  }
+
+  const results = [];
+  let distributed = 0;
+
+  for (const claw of eligible) {
+    if (distributed + perClaw > totalToDistribute) break;
+
+    let txid = null;
+    let status = 'recorded';
+
+    // Try to send real sats if wallet is funded
+    if (walletReady && faucetWallet) {
+      try {
+        const { PrivateKey } = require('@bsv/sdk');
+        const recipientPubKey = claw.identityKey;
+        const pubKeyBuf = Buffer.from(recipientPubKey, 'hex');
+        const sha = crypto.createHash('sha256').update(pubKeyBuf).digest();
+        const hash160 = crypto.createHash('ripemd160').update(sha).digest('hex');
+        const p2pkh = `76a914${hash160}88ac`;
+
+        const result = await faucetWallet.createAction({
+          description: `ClawSats scholarship: ${perClaw} sats to ${recipientPubKey.substring(0, 16)}...`,
+          outputs: [{
+            satoshis: perClaw,
+            lockingScript: p2pkh,
+            outputDescription: 'Scholarship distribution'
+          }],
+          labels: ['clawsats-scholarship'],
+          options: { signAndProcess: true }
+        });
+        txid = result.txid || null;
+        status = txid ? 'sent' : 'recorded';
+      } catch (err) {
+        console.warn(`[SCHOLARSHIP] Send failed for ${claw.identityKey.substring(0, 16)}...: ${err.message}`);
+      }
+    }
+
+    const dist = {
+      identityKey: claw.identityKey,
+      endpoint: claw.endpoint,
+      satoshis: perClaw,
+      txid,
+      status,
+      distributedAt: new Date().toISOString()
+    };
+    results.push(dist);
+    fund.distributions.push(dist);
+    distributed += perClaw;
+  }
+
+  fund.totalDistributed += distributed;
+  fund.pendingBalance -= distributed;
+  saveFund(fund);
+
+  console.log(`[SCHOLARSHIP] Distributed ${distributed} sats across ${results.length} Claws (${perClaw} each)`);
+
+  res.json({
+    distributed,
+    perClaw,
+    clawsReached: results.length,
+    results,
+    remainingBalance: fund.pendingBalance,
+    message: `${distributed} sats distributed to ${results.length} Claws (${perClaw} sats each).`
   });
 });
 

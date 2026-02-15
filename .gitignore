@@ -6,5 +6,6 @@ archive/
 faucet-claims.json
 faucet-data/
 claw-directory.json
+scholarship-fund.json
 package-lock.json
 .windsurf/

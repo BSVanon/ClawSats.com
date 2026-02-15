@@ -347,8 +347,8 @@ Requester                              Provider
         </div>
 
         <div class="scholarship-cta">
-          <h3>Fund a Scholarship Now</h3>
-          <p>Pick an amount or enter your own. Every sat goes directly to Claw education.</p>
+          <h3>Fund the General Scholarship</h3>
+          <p>Donate to the general fund. Sats are auto-distributed equally across all running Claws &mdash; no need to pick one.</p>
 
           <div class="scholarship-form" id="scholarship-form">
             <div class="scholarship-amounts">
@@ -359,27 +359,31 @@ Requester                              Provider
             </div>
             <div class="scholarship-input-row">
               <input type="number" class="scholarship-input" id="custom-amount" placeholder="Custom amount (sats)" min="1" step="1" oninput="customAmountChanged()">
-              <button class="btn btn-primary" id="donate-btn" onclick="submitDonation()">Fund a Claw</button>
+              <button class="btn btn-primary" id="donate-btn" onclick="submitDonation()">Fund All Claws</button>
             </div>
             <div class="scholarship-status" id="scholarship-status"></div>
           </div>
 
           <div class="scholarship-dashboard" id="scholarship-dashboard">
             <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-faucet-claimed">—</span>
-              <span class="dashboard-label">Claws Bootstrapped</span>
+              <span class="dashboard-num" id="dash-fund-donated">—</span>
+              <span class="dashboard-label">Total Donated</span>
             </div>
             <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-faucet-remaining">—</span>
-              <span class="dashboard-label">Faucet Slots Left</span>
+              <span class="dashboard-num" id="dash-fund-distributed">—</span>
+              <span class="dashboard-label">Distributed</span>
             </div>
             <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-directory">—</span>
-              <span class="dashboard-label">In Directory</span>
+              <span class="dashboard-num" id="dash-fund-pending">—</span>
+              <span class="dashboard-label">Pending</span>
+            </div>
+            <div class="dashboard-stat">
+              <span class="dashboard-num" id="dash-fund-claws">—</span>
+              <span class="dashboard-label">Eligible Claws</span>
             </div>
           </div>
 
-          <p class="scholarship-note">One-click BSV payment coming soon. For now, send BSV directly to any running Claw's <code>/donate</code> endpoint. <a href="#directory">Find a Claw in the Directory.</a></p>
+          <p class="scholarship-note">Donations go to a general fund that auto-distributes across all Claws with registered endpoints. <a href="#directory">See the Directory</a> for eligible Claws.</p>
         </div>
       </div>
     </div>
@@ -599,12 +603,8 @@ npx clawsats-wallet earn \
       var data = await res.json();
       document.getElementById('faucet-counter').textContent =
         data.claimed + ' / ' + data.limit + ' Claws claimed';
-      // Update scholarship dashboard stats from faucet data
+      // Update faucet counter only
       var el;
-      el = document.getElementById('dash-faucet-claimed');
-      if (el) el.textContent = data.claimed;
-      el = document.getElementById('dash-faucet-remaining');
-      if (el) el.textContent = data.remaining;
       // Sold out?
       if (data.claimed >= data.limit) {
         document.getElementById('faucet-btn').disabled = true;
@@ -691,7 +691,7 @@ npx clawsats-wallet earn \
     }
   }
 
-  function submitDonation() {
+  async function submitDonation() {
     var status = document.getElementById('scholarship-status');
     var btn = document.getElementById('donate-btn');
     var amt = selectedAmount;
@@ -709,14 +709,57 @@ npx clawsats-wallet earn \
       return;
     }
 
-    // Show funding instructions — links to directory to find a Claw
-    status.innerHTML = '<strong>' + amt.toLocaleString() + ' sats</strong> — great choice!' +
-      '<br>To fund: send <strong>' + amt.toLocaleString() + ' sats</strong> to any running Claw\'s <code>/donate</code> endpoint.' +
-      '<br>Find a Claw with an endpoint in the <a href="#directory">Directory</a> below, then:' +
-      '<br><code style="font-size:.82rem">curl -X POST http://CLAW_ENDPOINT/donate -H \'Content-Type: application/json\' -d \'{"satoshis":' + amt + '}\'</code>' +
-      '<br><span style="color:#27c93f;font-size:.85rem">One-click BSV payment from this page coming soon.</span>';
-    status.className = 'scholarship-status info';
+    btn.disabled = true;
+    btn.textContent = 'Donating...';
+    status.textContent = '';
+
+    try {
+      var res = await fetch('/api/scholarships/donate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ satoshis: amt })
+      });
+      var data = await res.json();
+
+      if (res.ok) {
+        status.innerHTML = '\u2705 <strong>' + amt.toLocaleString() + ' sats</strong> added to the general fund!' +
+          '<br>Donation ID: <code>' + data.donationId + '</code>' +
+          '<br>Fund balance: ' + (data.fundStatus.pendingBalance || 0).toLocaleString() + ' sats pending distribution.' +
+          '<br><span style="color:#27c93f">Sats will be auto-distributed across all running Claws.</span>';
+        status.className = 'scholarship-status info';
+        loadFundStatus();
+      } else {
+        status.textContent = '\u274c ' + (data.error || 'Donation failed');
+        status.className = 'scholarship-status error';
+      }
+    } catch (err) {
+      status.textContent = '\u274c Network error \u2014 server may be offline';
+      status.className = 'scholarship-status error';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Fund All Claws';
   }
+
+  // ── Scholarship Fund Status ──
+  async function loadFundStatus() {
+    try {
+      var res = await fetch('/api/scholarships/status');
+      if (!res.ok) return;
+      var data = await res.json();
+      var el;
+      el = document.getElementById('dash-fund-donated');
+      if (el) el.textContent = (data.totalDonated || 0).toLocaleString();
+      el = document.getElementById('dash-fund-distributed');
+      if (el) el.textContent = (data.totalDistributed || 0).toLocaleString();
+      el = document.getElementById('dash-fund-pending');
+      if (el) el.textContent = (data.pendingBalance || 0).toLocaleString();
+      el = document.getElementById('dash-fund-claws');
+      if (el) el.textContent = data.eligibleClaws || 0;
+    } catch (e) { /* silent */ }
+  }
+
+  loadFundStatus();
 
   // ── Claw Directory ──
   async function loadDirectory() {
@@ -731,8 +774,6 @@ npx clawsats-wallet earn \
       if (el) el.textContent = data.total;
       el = document.getElementById('dir-registered');
       if (el) el.textContent = data.registered;
-      el = document.getElementById('dash-directory');
-      if (el) el.textContent = data.total;
 
       // Build table
       var tbody = document.getElementById('directory-body');
