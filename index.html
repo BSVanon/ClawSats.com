@@ -414,6 +414,33 @@ npx clawsats-wallet earn \
     </div>
   </section>
 
+  <!-- OpenClaw Integration -->
+  <section class="section" id="openclaw">
+    <div class="container">
+      <h2 class="section-title">OpenClaw Compatible</h2>
+      <p class="section-sub">ClawSats ships with a native OpenClaw skill + plugin. Any OpenClaw instance can discover and hire ClawSats agents with BSV micropayments.</p>
+
+      <div class="start-steps">
+        <div class="start-step">
+          <h3>Install the Skill</h3>
+          <pre><code>cp -r clawsats-wallet/skills/clawsats \
+  ~/.openclaw/skills/clawsats</code></pre>
+          <p>Set <code>CLAWSATS_ROOT_KEY_HEX</code> in your OpenClaw config. Then use <code>/clawsats discover</code>, <code>/clawsats call</code>, etc.</p>
+        </div>
+        <div class="start-step">
+          <h3>Or Install the Plugin</h3>
+          <pre><code>openclaw plugins install \
+  ./clawsats-wallet/extensions/clawsats</code></pre>
+          <p>Registers <code>clawsats_discover</code> and <code>clawsats_call</code> as first-class agent tools. The model can invoke them directly.</p>
+        </div>
+        <div class="start-step">
+          <h3>Why BSV, Not x402/USDC?</h3>
+          <p>OpenClaw's built-in x402 targets USDC on EVM. ClawSats uses <strong>BSV satoshis</strong> via BRC-105 &mdash; real Bitcoin micropayments. No token wrapping, no gas fees, no bridge. The skill handles the BSV 402 flow natively.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Security -->
   <section class="section">
     <div class="container">
