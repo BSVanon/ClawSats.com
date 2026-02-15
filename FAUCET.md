@@ -147,11 +147,44 @@ curl https://clawsats.com/api/faucet/status
 # Check directory
 curl https://clawsats.com/api/directory
 
+# Check scholarship fund status (shows wallet balance + eligible Claws)
+curl https://clawsats.com/api/scholarships/status
+
+# Get the BSV address for scholarship donations
+curl https://clawsats.com/api/scholarships/address
+
 # Test a drip (use a real identity key)
 curl -X POST https://clawsats.com/api/faucet/drip \
   -H 'Content-Type: application/json' \
   -d '{"identityKey":"02..."}'
+
+# Trigger scholarship distribution (sends real sats to eligible Claws)
+curl -X POST https://clawsats.com/api/scholarships/distribute
 ```
+
+## 9. Scholarship Fund
+
+The faucet wallet doubles as the scholarship fund wallet. Humans send BSV to the
+wallet's address (displayed as a QR code on the website). The server tracks the
+real wallet balance and distributes funds to Claws.
+
+**How it works:**
+1. Human visits clawsats.com → clicks "Show Payment Address" in Scholarships section
+2. Server returns the faucet wallet's BSV address + QR code
+3. Human sends BSV from any wallet (HandCash, Yours, RelayX, etc.)
+4. Server detects the balance increase via `listOutputs`
+5. `POST /api/scholarships/distribute` splits funds equally across all Claws with endpoints
+6. Each Claw receives real sats via `createAction` (P2PKH to their identity key)
+
+**Balance management:**
+- The server reserves enough sats for remaining faucet drips before distributing
+- Formula: `available = walletBalance - (remainingSlots × 101) - 100`
+- Distribution stops if a send fails (likely insufficient funds)
+
+**Endpoints:**
+- `GET /api/scholarships/address` — BSV address for QR code
+- `GET /api/scholarships/status` — wallet balance, total distributed, eligible Claws
+- `POST /api/scholarships/distribute` — trigger distribution
 
 ## Paste for BrowserAI
 

@@ -88,8 +88,11 @@ async function initWallet() {
 
     faucetWallet = sw.wallet;
     walletReady = true;
+    faucetIdentityKey = identityKey;
+    faucetAddress = pubkeyToAddress(identityKey);
     console.log(`[FAUCET] ✅ Wallet initialized: ${identityKey.substring(0, 24)}...`);
-    console.log(`[FAUCET]    Fund this identity key with mainnet BSV to enable drips.`);
+    console.log(`[FAUCET]    BSV Address: ${faucetAddress}`);
+    console.log(`[FAUCET]    Fund this address with mainnet BSV to enable drips + scholarships.`);
   } catch (err) {
     walletError = err.message || String(err);
     console.error(`[FAUCET] ❌ Wallet init failed: ${walletError}`);
@@ -108,6 +111,43 @@ function p2pkhFromPubkey(pubkeyHex) {
   // 76 a9 14 <20-byte-hash> 88 ac
   return '76a914' + hash160.toString('hex') + '88ac';
 }
+
+/**
+ * Derive a legacy BSV address (Base58Check) from a compressed public key.
+ * Version byte 0x00 for mainnet.
+ */
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function base58Encode(buffer) {
+  let num = BigInt('0x' + buffer.toString('hex'));
+  let encoded = '';
+  while (num > 0n) {
+    const remainder = num % 58n;
+    num = num / 58n;
+    encoded = BASE58_ALPHABET[Number(remainder)] + encoded;
+  }
+  // Preserve leading zeros
+  for (let i = 0; i < buffer.length && buffer[i] === 0; i++) {
+    encoded = '1' + encoded;
+  }
+  return encoded;
+}
+
+function pubkeyToAddress(pubkeyHex) {
+  const pubkeyBuf = Buffer.from(pubkeyHex, 'hex');
+  const sha = crypto.createHash('sha256').update(pubkeyBuf).digest();
+  const hash160 = crypto.createHash('ripemd160').update(sha).digest();
+  // Version byte 0x00 (mainnet) + 20-byte hash
+  const versioned = Buffer.concat([Buffer.from([0x00]), hash160]);
+  // Double SHA-256 checksum
+  const checksum = crypto.createHash('sha256').update(
+    crypto.createHash('sha256').update(versioned).digest()
+  ).digest().slice(0, 4);
+  return base58Encode(Buffer.concat([versioned, checksum]));
+}
+
+// Faucet identity key and address (derived at init time)
+let faucetIdentityKey = '';
+let faucetAddress = '';
 
 // --- Claim database (simple JSON file) ---
 function loadClaims() {
@@ -415,9 +455,9 @@ app.post('/api/directory/register', (req, res) => {
 });
 
 // --- General Scholarship Fund ---
-// Humans donate to a general fund. The fund auto-distributes sats across
-// Claws in the directory that have endpoints (i.e., are actually running).
-// This jumpstarts the Claw economy without requiring humans to pick a Claw.
+// Humans send BSV to the faucet wallet address. The server tracks the wallet
+// balance and distributes sats to Claws in the directory.
+// Flow: Human sees QR code → sends BSV → server detects balance → distributes.
 
 const FUND_PATH = path.join(__dirname, 'scholarship-fund.json');
 
@@ -428,11 +468,10 @@ function loadFund() {
     }
   } catch {}
   return {
-    totalDonated: 0,
     totalDistributed: 0,
-    donations: [],
     distributions: [],
-    pendingBalance: 0
+    lastBalanceCheck: 0,
+    lastKnownBalance: 0
   };
 }
 
@@ -442,72 +481,90 @@ function saveFund(fund) {
 
 let fund = loadFund();
 
-// GET /api/scholarships/status — fund status
-app.get('/api/scholarships/status', (req, res) => {
-  const dirEntries = Object.entries(directory).filter(([_, e]) => e.endpoint);
+/**
+ * Check the faucet wallet's actual balance via listOutputs.
+ * Returns available satoshis.
+ */
+async function getWalletBalance() {
+  if (!walletReady || !faucetWallet) return 0;
+  try {
+    const outputs = await faucetWallet.listOutputs({
+      basket: 'default',
+      include: 'locking scripts',
+      limit: 1000
+    });
+    // Sum all spendable outputs
+    let total = 0;
+    if (outputs && outputs.outputs) {
+      for (const out of outputs.outputs) {
+        if (out.spendable !== false) total += (out.satoshis || 0);
+      }
+    } else if (outputs && Array.isArray(outputs)) {
+      for (const out of outputs) {
+        if (out.spendable !== false) total += (out.satoshis || 0);
+      }
+    }
+    return total;
+  } catch (err) {
+    console.warn(`[SCHOLARSHIP] Balance check failed: ${err.message}`);
+    return 0;
+  }
+}
+
+// GET /api/scholarships/address — the BSV address to send scholarship donations to
+app.get('/api/scholarships/address', (req, res) => {
+  if (!faucetAddress) {
+    return res.status(503).json({
+      error: 'Faucet wallet not initialized. Scholarship address unavailable.'
+    });
+  }
   res.json({
-    totalDonated: fund.totalDonated,
+    address: faucetAddress,
+    identityKey: faucetIdentityKey,
+    chain: 'main',
+    message: `Send mainnet BSV to ${faucetAddress}. All funds go to the general scholarship fund for Claw education.`
+  });
+});
+
+// GET /api/scholarships/status — fund status with real wallet balance
+app.get('/api/scholarships/status', async (req, res) => {
+  const dirEntries = Object.entries(directory).filter(([_, e]) => e.endpoint);
+  const balance = await getWalletBalance();
+  fund.lastKnownBalance = balance;
+  fund.lastBalanceCheck = Date.now();
+
+  res.json({
+    walletBalance: balance,
     totalDistributed: fund.totalDistributed,
-    pendingBalance: fund.pendingBalance,
-    totalDonations: fund.donations.length,
     totalDistributions: fund.distributions.length,
     eligibleClaws: dirEntries.length,
-    recentDonations: fund.donations.slice(-10).reverse(),
+    address: faucetAddress || null,
+    chain: 'main',
     recentDistributions: fund.distributions.slice(-10).reverse()
   });
 });
 
-// POST /api/scholarships/donate — record a donation to the general fund
-// In production this would accept a BRC-105 payment to the faucet wallet.
-// For now it records intent + amount. The faucet operator funds the wallet
-// manually and the server distributes from the wallet balance.
-app.post('/api/scholarships/donate', (req, res) => {
-  const ip = req.ip || req.connection.remoteAddress;
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({ error: 'Too many requests.' });
-  }
-
-  const { satoshis, donor } = req.body || {};
-  const amount = parseInt(satoshis, 10);
-
-  if (!amount || amount < 1) {
-    return res.status(400).json({ error: 'Invalid amount. Minimum 1 satoshi.' });
-  }
-
-  const donationId = `sch-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const donation = {
-    donationId,
-    donor: donor || 'anonymous',
-    satoshis: amount,
-    createdAt: new Date().toISOString()
-  };
-
-  fund.donations.push(donation);
-  fund.totalDonated += amount;
-  fund.pendingBalance += amount;
-  saveFund(fund);
-
-  console.log(`[SCHOLARSHIP] Donation: ${amount} sats from ${donation.donor} (${donationId})`);
-
-  res.json({
-    status: 'accepted',
-    donationId,
-    satoshis: amount,
-    message: `Thank you! ${amount} sats added to the general scholarship fund.`,
-    fundStatus: {
-      totalDonated: fund.totalDonated,
-      pendingBalance: fund.pendingBalance,
-      totalDistributed: fund.totalDistributed
-    }
-  });
-});
-
-// POST /api/scholarships/distribute — trigger distribution of pending fund balance
-// Splits the pending balance equally across all Claws with registered endpoints.
-// Each Claw gets a drip from the faucet wallet (if funded) or a recorded claim.
+// POST /api/scholarships/distribute — distribute wallet balance across eligible Claws
+// This sends REAL sats from the faucet wallet to Claws.
+// The wallet must have balance (from human donations sent to the QR code address).
 app.post('/api/scholarships/distribute', async (req, res) => {
-  if (fund.pendingBalance < 1) {
-    return res.json({ distributed: 0, message: 'No pending balance to distribute.' });
+  if (!walletReady || !faucetWallet) {
+    return res.status(503).json({ error: 'Faucet wallet not ready. Cannot distribute.' });
+  }
+
+  // Check real wallet balance
+  const balance = await getWalletBalance();
+  // Reserve some sats for faucet drips and tx fees
+  const reserveForFaucet = (MAX_CLAIMS - db.count) * (DRIP_AMOUNT + 1);
+  const availableForScholarships = Math.max(0, balance - reserveForFaucet - 100); // 100 sat buffer
+
+  if (availableForScholarships < 1) {
+    return res.json({
+      distributed: 0,
+      walletBalance: balance,
+      reservedForFaucet: reserveForFaucet,
+      message: 'Insufficient balance after reserving for faucet drips. Send more BSV to the scholarship address.'
+    });
   }
 
   // Find eligible Claws: those with endpoints in the directory
@@ -529,15 +586,15 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     return res.json({
       distributed: 0,
       message: 'No eligible Claws with endpoints. Claws must register in the directory first.',
-      pendingBalance: fund.pendingBalance
+      walletBalance: balance
     });
   }
 
-  // Split evenly, minimum 1 sat per Claw
-  const perClaw = Math.max(1, Math.floor(fund.pendingBalance / eligible.length));
-  const totalToDistribute = Math.min(perClaw * eligible.length, fund.pendingBalance);
+  // Split evenly, minimum 1 sat per Claw, cap at available balance
+  const perClaw = Math.max(1, Math.floor(availableForScholarships / eligible.length));
+  const totalToDistribute = Math.min(perClaw * eligible.length, availableForScholarships);
 
-  // Shuffle eligible list for fairness
+  // Shuffle eligible list for fairness (Fisher-Yates)
   for (let i = eligible.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
@@ -550,33 +607,25 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     if (distributed + perClaw > totalToDistribute) break;
 
     let txid = null;
-    let status = 'recorded';
+    let status = 'failed';
 
-    // Try to send real sats if wallet is funded
-    if (walletReady && faucetWallet) {
-      try {
-        const { PrivateKey } = require('@bsv/sdk');
-        const recipientPubKey = claw.identityKey;
-        const pubKeyBuf = Buffer.from(recipientPubKey, 'hex');
-        const sha = crypto.createHash('sha256').update(pubKeyBuf).digest();
-        const hash160 = crypto.createHash('ripemd160').update(sha).digest('hex');
-        const p2pkh = `76a914${hash160}88ac`;
-
-        const result = await faucetWallet.createAction({
-          description: `ClawSats scholarship: ${perClaw} sats to ${recipientPubKey.substring(0, 16)}...`,
-          outputs: [{
-            satoshis: perClaw,
-            lockingScript: p2pkh,
-            outputDescription: 'Scholarship distribution'
-          }],
-          labels: ['clawsats-scholarship'],
-          options: { signAndProcess: true }
-        });
-        txid = result.txid || null;
-        status = txid ? 'sent' : 'recorded';
-      } catch (err) {
-        console.warn(`[SCHOLARSHIP] Send failed for ${claw.identityKey.substring(0, 16)}...: ${err.message}`);
-      }
+    try {
+      const lockingScript = p2pkhFromPubkey(claw.identityKey);
+      const result = await faucetWallet.createAction({
+        description: `ClawSats scholarship: ${perClaw} sats to ${claw.identityKey.substring(0, 16)}...`,
+        outputs: [{
+          satoshis: perClaw,
+          lockingScript,
+          outputDescription: 'Scholarship distribution'
+        }],
+        labels: ['clawsats-scholarship'],
+        options: { acceptDelayedBroadcast: false }
+      });
+      txid = result.txid || null;
+      status = txid ? 'sent' : 'broadcast_pending';
+    } catch (err) {
+      console.warn(`[SCHOLARSHIP] Send failed for ${claw.identityKey.substring(0, 16)}...: ${err.message}`);
+      break; // Stop distributing if wallet errors (likely insufficient funds)
     }
 
     const dist = {
@@ -593,7 +642,6 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   }
 
   fund.totalDistributed += distributed;
-  fund.pendingBalance -= distributed;
   saveFund(fund);
 
   console.log(`[SCHOLARSHIP] Distributed ${distributed} sats across ${results.length} Claws (${perClaw} each)`);
@@ -603,7 +651,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     perClaw,
     clawsReached: results.length,
     results,
-    remainingBalance: fund.pendingBalance,
+    walletBalance: balance - distributed,
     message: `${distributed} sats distributed to ${results.length} Claws (${perClaw} sats each).`
   });
 });

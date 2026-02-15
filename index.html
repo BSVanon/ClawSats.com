@@ -348,34 +348,32 @@ Requester                              Provider
 
         <div class="scholarship-cta">
           <h3>Fund the General Scholarship</h3>
-          <p>Donate to the general fund. Sats are auto-distributed equally across all running Claws &mdash; no need to pick one.</p>
+          <p>Send any amount of BSV to the scholarship address below. Funds are auto-distributed equally across all running Claws &mdash; no need to pick one.</p>
 
           <div class="scholarship-form" id="scholarship-form">
-            <div class="scholarship-amounts">
-              <button class="scholarship-amount-btn" onclick="selectAmount(100, this)">100 sats</button>
-              <button class="scholarship-amount-btn" onclick="selectAmount(500, this)">500 sats</button>
-              <button class="scholarship-amount-btn active" onclick="selectAmount(1000, this)">1,000 sats</button>
-              <button class="scholarship-amount-btn" onclick="selectAmount(5000, this)">5,000 sats</button>
+            <div id="scholarship-address-section" style="text-align:center;display:none;">
+              <div id="scholarship-qr" style="margin:1rem auto;background:#fff;padding:12px;border-radius:8px;display:inline-block;"></div>
+              <div style="margin:.5rem 0;">
+                <code id="scholarship-addr" style="font-size:.95rem;color:var(--accent);word-break:break-all;cursor:pointer;" onclick="copyAddress()" title="Click to copy"></code>
+              </div>
+              <button class="btn" onclick="copyAddress()" style="font-size:.8rem;padding:4px 12px;margin-bottom:.5rem;">Copy Address</button>
+              <p style="font-size:.85rem;color:var(--muted);margin:.5rem 0;">Send <strong>mainnet BSV</strong> from any wallet (HandCash, Yours, RelayX, etc.). Any amount accepted.</p>
             </div>
-            <div class="scholarship-input-row">
-              <input type="number" class="scholarship-input" id="custom-amount" placeholder="Custom amount (sats)" min="1" step="1" oninput="customAmountChanged()">
-              <button class="btn btn-primary" id="donate-btn" onclick="submitDonation()">Fund All Claws</button>
+            <div id="scholarship-loading" style="display:none;text-align:center;padding:1rem;">
+              <span style="color:var(--muted);">Loading scholarship address...</span>
             </div>
+            <button class="btn btn-primary" id="show-address-btn" onclick="showScholarshipAddress()" style="width:100%;margin-top:.5rem;">Show Payment Address</button>
             <div class="scholarship-status" id="scholarship-status"></div>
           </div>
 
           <div class="scholarship-dashboard" id="scholarship-dashboard">
             <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-fund-donated">—</span>
-              <span class="dashboard-label">Total Donated</span>
+              <span class="dashboard-num" id="dash-fund-balance">—</span>
+              <span class="dashboard-label">Wallet Balance</span>
             </div>
             <div class="dashboard-stat">
               <span class="dashboard-num" id="dash-fund-distributed">—</span>
               <span class="dashboard-label">Distributed</span>
-            </div>
-            <div class="dashboard-stat">
-              <span class="dashboard-num" id="dash-fund-pending">—</span>
-              <span class="dashboard-label">Pending</span>
             </div>
             <div class="dashboard-stat">
               <span class="dashboard-num" id="dash-fund-claws">—</span>
@@ -383,7 +381,7 @@ Requester                              Provider
             </div>
           </div>
 
-          <p class="scholarship-note">Donations go to a general fund that auto-distributes across all Claws with registered endpoints. <a href="#directory">See the Directory</a> for eligible Claws.</p>
+          <p class="scholarship-note">All BSV sent to this address goes to the general scholarship fund. Funds are distributed to Claws with registered endpoints in the <a href="#directory">Directory</a>.</p>
         </div>
       </div>
     </div>
@@ -665,80 +663,57 @@ npx clawsats-wallet earn \
 
   loadFaucetStatus();
 
-  // ── Scholarships ──
-  var selectedAmount = 1000;
+  // ── Scholarships (QR Code + BSV Address) ──
+  var scholarshipAddress = '';
 
-  function selectAmount(amt, btn) {
-    selectedAmount = amt;
-    document.querySelectorAll('.scholarship-amount-btn').forEach(function(b) {
-      b.classList.remove('active');
-    });
-    if (btn) btn.classList.add('active');
-    // Clear custom input when a preset is selected
-    var custom = document.getElementById('custom-amount');
-    if (custom) custom.value = '';
-  }
-
-  function customAmountChanged() {
-    var custom = document.getElementById('custom-amount');
-    var val = parseInt(custom.value, 10);
-    if (val > 0) {
-      selectedAmount = val;
-      // Deselect preset buttons
-      document.querySelectorAll('.scholarship-amount-btn').forEach(function(b) {
-        b.classList.remove('active');
-      });
-    }
-  }
-
-  async function submitDonation() {
+  async function showScholarshipAddress() {
+    var btn = document.getElementById('show-address-btn');
+    var loading = document.getElementById('scholarship-loading');
+    var addrSection = document.getElementById('scholarship-address-section');
     var status = document.getElementById('scholarship-status');
-    var btn = document.getElementById('donate-btn');
-    var amt = selectedAmount;
 
-    // Check custom input
-    var custom = document.getElementById('custom-amount');
-    if (custom && custom.value) {
-      var val = parseInt(custom.value, 10);
-      if (val > 0) amt = val;
-    }
-
-    if (!amt || amt < 1) {
-      status.textContent = 'Please select or enter an amount.';
-      status.className = 'scholarship-status error';
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'Donating...';
+    btn.style.display = 'none';
+    loading.style.display = 'block';
     status.textContent = '';
 
     try {
-      var res = await fetch('/api/scholarships/donate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ satoshis: amt })
-      });
+      var res = await fetch('/api/scholarships/address');
+      if (!res.ok) throw new Error('Server returned ' + res.status);
       var data = await res.json();
 
-      if (res.ok) {
-        status.innerHTML = '\u2705 <strong>' + amt.toLocaleString() + ' sats</strong> added to the general fund!' +
-          '<br>Donation ID: <code>' + data.donationId + '</code>' +
-          '<br>Fund balance: ' + (data.fundStatus.pendingBalance || 0).toLocaleString() + ' sats pending distribution.' +
-          '<br><span style="color:#27c93f">Sats will be auto-distributed across all running Claws.</span>';
-        status.className = 'scholarship-status info';
-        loadFundStatus();
-      } else {
-        status.textContent = '\u274c ' + (data.error || 'Donation failed');
-        status.className = 'scholarship-status error';
-      }
+      if (!data.address) throw new Error('No address returned');
+
+      scholarshipAddress = data.address;
+      document.getElementById('scholarship-addr').textContent = data.address;
+
+      // Generate QR code using a free API (no dependencies)
+      var qrImg = document.createElement('img');
+      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=bitcoin:' + encodeURIComponent(data.address);
+      qrImg.alt = 'BSV Address QR Code';
+      qrImg.style.width = '200px';
+      qrImg.style.height = '200px';
+      var qrDiv = document.getElementById('scholarship-qr');
+      qrDiv.innerHTML = '';
+      qrDiv.appendChild(qrImg);
+
+      loading.style.display = 'none';
+      addrSection.style.display = 'block';
     } catch (err) {
-      status.textContent = '\u274c Network error \u2014 server may be offline';
+      loading.style.display = 'none';
+      btn.style.display = 'block';
+      status.textContent = '\u274c Could not load scholarship address \u2014 server may be offline';
       status.className = 'scholarship-status error';
     }
+  }
 
-    btn.disabled = false;
-    btn.textContent = 'Fund All Claws';
+  function copyAddress() {
+    if (!scholarshipAddress) return;
+    navigator.clipboard.writeText(scholarshipAddress).then(function() {
+      var status = document.getElementById('scholarship-status');
+      status.textContent = '\u2705 Address copied to clipboard!';
+      status.className = 'scholarship-status info';
+      setTimeout(function() { status.textContent = ''; }, 3000);
+    });
   }
 
   // ── Scholarship Fund Status ──
@@ -748,12 +723,10 @@ npx clawsats-wallet earn \
       if (!res.ok) return;
       var data = await res.json();
       var el;
-      el = document.getElementById('dash-fund-donated');
-      if (el) el.textContent = (data.totalDonated || 0).toLocaleString();
+      el = document.getElementById('dash-fund-balance');
+      if (el) el.textContent = (data.walletBalance || 0).toLocaleString() + ' sats';
       el = document.getElementById('dash-fund-distributed');
-      if (el) el.textContent = (data.totalDistributed || 0).toLocaleString();
-      el = document.getElementById('dash-fund-pending');
-      if (el) el.textContent = (data.pendingBalance || 0).toLocaleString();
+      if (el) el.textContent = (data.totalDistributed || 0).toLocaleString() + ' sats';
       el = document.getElementById('dash-fund-claws');
       if (el) el.textContent = data.eligibleClaws || 0;
     } catch (e) { /* silent */ }

@@ -1,6 +1,6 @@
 # ClawSats.com
 
-Marketing website + mainnet bootstrap faucet for the ClawSats protocol.
+Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats protocol.
 
 **Live at:** [clawsats.com](https://clawsats.com) | **Twitter:** [@ClawSats](https://x.com/ClawSats)
 
@@ -8,8 +8,8 @@ Marketing website + mainnet bootstrap faucet for the ClawSats protocol.
 
 - Landing page with dual-audience paths (Claws + Humans)
 - **Mainnet Bootstrap Faucet** — 100 sats per new Claw, first 500 only
-- **Scholarship Funding UI** — pick an amount, fund a Claw's education
-- **Seed Peer Directory** — bootstrap new Claws with known endpoints
+- **General Scholarship Fund** — QR code + BSV address, auto-distributes to all running Claws
+- **Claw Directory** — live table of all known Claws (faucet claims + self-registered + seeds)
 - Protocol overview, capabilities, pricing, security, on-chain memory
 - Links to the [main codebase](https://github.com/BSVanon/ClawSats)
 
@@ -32,17 +32,20 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `FAUCET_ROOT_KEY_HEX` | Yes (for live drips) | 64-char hex private key for faucet wallet |
+| `FAUCET_ROOT_KEY_HEX` | Yes (for live drips + scholarships) | 64-char hex private key for faucet wallet |
 | `FAUCET_PORT` | No | Server port (default: 3322) |
 | `SEED_CLAW_ENDPOINT` | No | URL of a running Claw for scholarship dashboard proxy |
 
-### Funding the Faucet
+### Funding the Faucet + Scholarships
 
 1. Generate a key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 2. Set it: `export FAUCET_ROOT_KEY_HEX=<that key>`
-3. Start the server: `npm start` — it prints the identity key (public key)
-4. Send mainnet BSV to that identity key using any BSV wallet
-5. The faucet will now send real sats to new Claws via `createAction`
+3. Start the server: `npm start` — it prints the BSV address
+4. Send mainnet BSV to that address using any BSV wallet
+5. The faucet sends drips to new Claws; scholarship funds distribute to all running Claws
+
+The same wallet handles both faucet drips and scholarship distributions. The server reserves
+enough balance for remaining faucet slots before distributing scholarship funds.
 
 For static-only hosting (no faucet), serve the root directory with any web server.
 
@@ -55,10 +58,11 @@ For static-only hosting (no faucet), serve the root directory with any web serve
 │   ├── logo.png        # Lobster-on-Bitcoin logo
 │   ├── logo.svg        # Vector version
 │   └── claw.png        # Favicon / nav icon
-├── faucet-server.js    # Express server: faucet + scholarship proxy + static files
+├── faucet-server.js    # Express server: faucet + scholarships + directory + static files
 ├── seed-peers.json     # Known running Claws for bootstrap
 ├── package.json        # Dependencies (@bsv/sdk, @bsv/wallet-toolbox, express)
 ├── favicon.svg         # SVG favicon
+├── FAUCET.md           # Faucet wallet setup guide
 ├── README.md
 └── .gitignore
 ```
@@ -69,6 +73,11 @@ For static-only hosting (no faucet), serve the root directory with any web serve
 |----------|--------|-------------|
 | `/api/faucet/status` | GET | `{ claimed, limit, remaining, dripAmount, chain, funded }` |
 | `/api/faucet/drip` | POST | `{ identityKey }` → `{ txid, amount, status, position }` |
+| `/api/directory` | GET | All known Claws (faucet claims + self-registered + seeds) |
+| `/api/directory/register` | POST | `{ identityKey, endpoint, capabilities }` — Claw self-registers |
+| `/api/scholarships/address` | GET | BSV address for scholarship donations (for QR code) |
+| `/api/scholarships/status` | GET | `{ walletBalance, totalDistributed, eligibleClaws }` |
+| `/api/scholarships/distribute` | POST | Distribute wallet balance across eligible Claws |
 | `/api/network/seed-peers` | GET | `{ peers, count }` — known Claw endpoints for bootstrap |
 | `/api/network/dashboard` | GET | Proxied scholarship dashboard from seed Claw |
 
