@@ -579,6 +579,20 @@ function saveDirectory(dir) {
 
 let directory = loadDirectory();
 
+function getEligibleClaws() {
+  const eligible = [];
+  for (const [key, entry] of Object.entries(directory)) {
+    eligible.push({ identityKey: key, endpoint: entry.endpoint || null });
+  }
+  for (const [key] of Object.entries(db.claims)) {
+    if (!eligible.find(e => e.identityKey === key)) {
+      const entry = directory[key];
+      eligible.push({ identityKey: key, endpoint: entry?.endpoint || null });
+    }
+  }
+  return eligible;
+}
+
 // GET /api/directory — list all known Claws
 app.get('/api/directory', (req, res) => {
   const seedPeers = loadSeedPeers();
@@ -833,7 +847,7 @@ app.get('/api/scholarships/address', (req, res) => {
 
 // GET /api/scholarships/status — fund status with real wallet balance
 app.get('/api/scholarships/status', async (req, res) => {
-  const dirEntries = Object.entries(directory).filter(([_, e]) => e.endpoint);
+  const eligible = getEligibleClaws();
   const balance = await getWalletBalance();
   fund.lastKnownBalance = balance;
   fund.lastBalanceCheck = Date.now();
@@ -842,7 +856,7 @@ app.get('/api/scholarships/status', async (req, res) => {
     walletBalance: balance,
     totalDistributed: fund.totalDistributed,
     totalDistributions: fund.distributions.length,
-    eligibleClaws: dirEntries.length,
+    eligibleClaws: eligible.length,
     address: faucetAddress || null,
     chain: 'main',
     recentDistributions: fund.distributions.slice(-10).reverse()
@@ -864,43 +878,36 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   const pendingClaims = getPendingClaimEntries().length;
   const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
   const reserveForFaucet = reserveSlots * MIN_DRIP_SPENDABLE;
-  const availableForScholarships = Math.max(0, balance - reserveForFaucet - 100); // 100 sat buffer
-
-  if (availableForScholarships < 1) {
-    return res.json({
-      distributed: 0,
-      walletBalance: balance,
-      reservedForFaucet: reserveForFaucet,
-      reserveSlots,
-      pendingClaims,
-      message: 'Insufficient balance after reserving for faucet drips. Send more BSV to the scholarship address.'
-    });
-  }
-
-  // Find eligible Claws: all known identities (claims + registered directory entries).
-  const eligible = [];
-  for (const [key, entry] of Object.entries(directory)) {
-    eligible.push({ identityKey: key, endpoint: entry.endpoint || null });
-  }
-  // Also include faucet claims (even if not registered with endpoint yet)
-  for (const [key] of Object.entries(db.claims)) {
-    const dirEntry = directory[key];
-    if (!eligible.find(e => e.identityKey === key)) {
-      eligible.push({ identityKey: key, endpoint: dirEntry?.endpoint || null });
-    }
-  }
+  const eligible = getEligibleClaws();
+  const txFeeReserveTotal = eligible.length * MIN_DRIP_SPENDABLE;
+  const budgetForOutputs = Math.max(0, balance - reserveForFaucet - txFeeReserveTotal);
 
   if (eligible.length === 0) {
     return res.json({
       distributed: 0,
       message: 'No eligible Claws found yet.',
-      walletBalance: balance
+      walletBalance: balance,
+      reservedForFaucet: reserveForFaucet,
+      reserveSlots,
+      pendingClaims
     });
   }
 
-  // Split evenly, minimum 1 sat per Claw, cap at available balance
-  const perClaw = Math.max(1, Math.floor(availableForScholarships / eligible.length));
-  const totalToDistribute = Math.min(perClaw * eligible.length, availableForScholarships);
+  if (budgetForOutputs < eligible.length) {
+    return res.json({
+      distributed: 0,
+      walletBalance: balance,
+      reservedForFaucet: reserveForFaucet,
+      reservedForScholarshipFees: txFeeReserveTotal,
+      reserveSlots,
+      pendingClaims,
+      message: 'Insufficient balance after reserving faucet + tx fees for scholarship sends. Send more BSV to the scholarship address.'
+    });
+  }
+
+  // Split evenly from output budget after reserving expected tx-fee headroom.
+  const perClaw = Math.max(1, Math.floor(budgetForOutputs / eligible.length));
+  const totalToDistribute = perClaw * eligible.length;
 
   // Shuffle eligible list for fairness (Fisher-Yates)
   for (let i = eligible.length - 1; i > 0; i--) {
