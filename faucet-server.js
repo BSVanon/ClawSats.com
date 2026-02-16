@@ -54,6 +54,7 @@ let faucetWallet = null;
 let walletReady = false;
 let walletError = null;
 let walletBackend = 'none';
+let settlingPendingClaims = false;
 
 function getPkgVersion(name) {
   try {
@@ -257,6 +258,85 @@ function isValidIdentityKey(key) {
   return /^(02|03)[0-9a-fA-F]{64}$/.test(key);
 }
 
+function isPendingClaim(claim) {
+  if (!claim) return false;
+  if (claim.txid) return false;
+  return (
+    claim.status === 'pending_funding' ||
+    claim.status === 'wallet_error' ||
+    claim.status === 'pending_broadcast'
+  );
+}
+
+function getPendingClaimEntries() {
+  return Object.entries(db.claims).filter(([_, claim]) => isPendingClaim(claim));
+}
+
+async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats faucet drip') {
+  const lockingScript = p2pkhFromPubkey(identityKey);
+  const result = await faucetWallet.createAction({
+    description: `${descriptionPrefix} to ${identityKey.substring(0, 16)}...`,
+    outputs: [{
+      satoshis: DRIP_AMOUNT,
+      lockingScript,
+      outputDescription: 'faucet drip',
+      tags: ['clawsats-faucet'],
+      basket: 'clawsats-faucet-drips'
+    }],
+    labels: ['clawsats-faucet'],
+    options: {
+      acceptDelayedBroadcast: false
+    }
+  });
+  const txid = result.txid || null;
+  const status = txid ? 'sent' : 'pending_broadcast';
+  return { txid, status };
+}
+
+async function settlePendingClaims(maxClaims = 50) {
+  if (!walletReady || !faucetWallet) return { processed: 0, sent: 0, failed: 0, remaining: 0 };
+  if (settlingPendingClaims) return { processed: 0, sent: 0, failed: 0, remaining: getPendingClaimEntries().length };
+
+  settlingPendingClaims = true;
+  try {
+    const pending = getPendingClaimEntries();
+    if (pending.length === 0) return { processed: 0, sent: 0, failed: 0, remaining: 0 };
+
+    let processed = 0;
+    let sent = 0;
+    let failed = 0;
+
+    for (const [identityKey, claim] of pending) {
+      if (processed >= maxClaims) break;
+      processed++;
+      try {
+        const { txid, status } = await sendDripToIdentityKey(identityKey, 'ClawSats pending faucet drip');
+        claim.txid = txid;
+        claim.status = status;
+        claim.sentAt = new Date().toISOString();
+        claim.lastError = null;
+        sent++;
+        console.log(`[FAUCET] ✅ Settled pending claim for ${identityKey.substring(0, 24)}... txid=${(txid || 'pending').substring(0, 16)}`);
+      } catch (err) {
+        failed++;
+        claim.status = 'wallet_error';
+        claim.lastError = err && err.message ? err.message : String(err);
+        console.warn(`[FAUCET] Pending claim send failed for ${identityKey.substring(0, 24)}...: ${claim.lastError}`);
+      }
+    }
+
+    saveClaims(db);
+    return {
+      processed,
+      sent,
+      failed,
+      remaining: getPendingClaimEntries().length
+    };
+  } finally {
+    settlingPendingClaims = false;
+  }
+}
+
 // --- Rate limiting ---
 const rateLimits = new Map();
 const RATE_LIMIT_WINDOW = 60000;
@@ -280,6 +360,7 @@ app.get('/api/faucet/status', async (req, res) => {
   const balance = await getWalletBalance();
   const reserveForNextDrip = DRIP_AMOUNT + 1;
   const funded = walletReady && balance >= reserveForNextDrip;
+  const pendingClaims = getPendingClaimEntries().length;
 
   res.json({
     claimed: db.count,
@@ -292,6 +373,7 @@ app.get('/api/faucet/status', async (req, res) => {
     walletBackend,
     walletBalance: balance,
     reserveForNextDrip,
+    pendingClaims,
     walletError: walletError || null
   });
 });
@@ -331,23 +413,9 @@ app.post('/api/faucet/drip', async (req, res) => {
     // If wallet is ready, send real sats
     if (walletReady && faucetWallet) {
       try {
-        const lockingScript = p2pkhFromPubkey(identityKey);
-        const result = await faucetWallet.createAction({
-          description: `ClawSats faucet drip to ${identityKey.substring(0, 16)}...`,
-          outputs: [{
-            satoshis: DRIP_AMOUNT,
-            lockingScript,
-            outputDescription: 'faucet drip',
-            tags: ['clawsats-faucet'],
-            basket: 'clawsats-faucet-drips'
-          }],
-          labels: ['clawsats-faucet'],
-          options: {
-            acceptDelayedBroadcast: false
-          }
-        });
-        txid = result.txid || null;
-        status = txid ? 'sent' : 'pending_broadcast';
+        const send = await sendDripToIdentityKey(identityKey);
+        txid = send.txid;
+        status = send.status;
         console.log(`[FAUCET] ✅ Drip #${db.count + 1}/${MAX_CLAIMS} → ${identityKey.substring(0, 24)}... txid=${(txid || 'pending').substring(0, 16)}`);
       } catch (walletErr) {
         console.error(`[FAUCET] Wallet send failed: ${walletErr.message}`);
@@ -757,6 +825,18 @@ app.get('*', (req, res) => {
 // --- Start ---
 async function main() {
   await initWallet();
+  if (walletReady) {
+    const replay = await settlePendingClaims(100);
+    if (replay.processed > 0) {
+      console.log(`[FAUCET] Pending claims replay: processed=${replay.processed} sent=${replay.sent} failed=${replay.failed} remaining=${replay.remaining}`);
+    }
+    setInterval(async () => {
+      const tick = await settlePendingClaims(25);
+      if (tick.processed > 0) {
+        console.log(`[FAUCET] Pending claims replay tick: processed=${tick.processed} sent=${tick.sent} failed=${tick.failed} remaining=${tick.remaining}`);
+      }
+    }, 60_000).unref();
+  }
 
   app.listen(PORT, BIND_HOST, () => {
     console.log(`\n🦞 ClawSats Faucet + Website (mainnet)`);
