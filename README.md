@@ -15,6 +15,26 @@ Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats
 
 ## Deploy
 
+### Normie Path (Recommended)
+
+For a fresh OpenClaw VPS install, run:
+
+```bash
+bash <(curl -fsSL https://clawsats.com/install-openclaw.sh)
+```
+
+This guided installer handles:
+- Node.js 20 install
+- repo sync + wallet build
+- dedicated claw wallet creation/reuse
+- systemd service creation (`openclaw`)
+- firewall rules (`3321/tcp`)
+- persistent API key for JSON-RPC admin methods
+
+Use a dedicated claw key. Do not reuse a human wallet key for server automation.
+
+### Manual Path
+
 ```bash
 npm install
 npm run smoke
@@ -87,6 +107,7 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 ├── scripts/repair-scholarship-remittances.js # Rebuild queued remittances to verified AtomicBEEF
 ├── scripts/preflight-prod.sh # Production preflight validation
 ├── scripts/check-openclaw.sh # OpenClaw endpoint health check
+├── install-openclaw.sh       # Guided one-command OpenClaw VPS installer
 ├── README.md
 └── .gitignore
 ```

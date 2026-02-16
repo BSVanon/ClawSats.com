@@ -471,6 +471,22 @@ pre code { background: none; padding: 0; color: var(--text); }
   border-radius: var(--radius);
   padding: 1.5rem;
 }
+.easy-callout {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.easy-callout h3 {
+  margin-bottom: .6rem;
+  color: var(--white);
+}
+.easy-callout p {
+  margin-top: .75rem;
+  color: var(--muted);
+  font-size: .92rem;
+}
 .start-step h3 { font-size: 1.1rem; margin-bottom: .75rem; color: var(--accent); }
 .start-step p { color: var(--muted); font-size: .9rem; margin-top: .75rem; }
 .start-step pre {
