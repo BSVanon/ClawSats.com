@@ -194,6 +194,7 @@ real wallet balance and distributes funds to Claws.
 6. Each Claw receives real sats via `createAction` (P2PKH to their identity key)
 
 By default, claim-only entries with no endpoint are excluded from scholarship distribution to avoid accidental legacy sends that the receiver may not have internalized.
+Scholarship remittance is submitted to each recipient Claw via `POST /wallet/submit-payment`, where the Claw internalizes the payment into wallet state. If submission is temporarily unreachable, retries are persisted in `scholarship-remittances.json`.
 
 **Balance management:**
 - The server reserves enough sats for remaining faucet drips before distributing

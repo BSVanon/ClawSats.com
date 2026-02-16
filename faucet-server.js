@@ -58,6 +58,8 @@ const FAUCET_RESERVE_SLOTS = Number.isFinite(Number(process.env.FAUCET_RESERVE_S
   : null;
 const SCHOLARSHIP_INCLUDE_CLAIM_ONLY = String(process.env.SCHOLARSHIP_INCLUDE_CLAIM_ONLY || 'false').toLowerCase() === 'true';
 const SCHOLARSHIP_ALLOW_LEGACY_P2PKH = String(process.env.SCHOLARSHIP_ALLOW_LEGACY_P2PKH || 'false').toLowerCase() === 'true';
+const SCHOLARSHIP_SUBMIT_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_SUBMIT_TIMEOUT_MS || '10000', 10);
+const SCHOLARSHIP_REMIT_RETRY_MS = parseInt(process.env.SCHOLARSHIP_REMIT_RETRY_MS || '60000', 10);
 
 // --- Wallet (lazy-initialized) ---
 let faucetWallet = null;
@@ -255,6 +257,39 @@ function pubkeyToAddress(pubkeyHex) {
   return base58Encode(Buffer.concat([versioned, checksum]));
 }
 
+function randomHex(bytes = 8) {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
+function extractActionTxBase64(actionResult) {
+  if (!actionResult) throw new Error('createAction returned no result');
+  if (actionResult.rawTx) {
+    if (typeof actionResult.rawTx === 'string') return actionResult.rawTx;
+    return Buffer.from(actionResult.rawTx).toString('base64');
+  }
+  if (actionResult.tx) {
+    if (typeof actionResult.tx === 'string') return actionResult.tx;
+    return Buffer.from(actionResult.tx).toString('base64');
+  }
+  throw new Error('createAction result missing tx payload (expected rawTx or tx).');
+}
+
+async function deriveBRC29LockingScript(recipientIdentityKey, derivationPrefix, derivationSuffix) {
+  if (!faucetWallet || typeof faucetWallet.getPublicKey !== 'function') {
+    throw new Error('Wallet does not expose getPublicKey for BRC-29 derivation.');
+  }
+  const key = await faucetWallet.getPublicKey({
+    protocolID: [2, '3241645161d8'],
+    keyID: `${derivationPrefix} ${derivationSuffix}`,
+    counterparty: recipientIdentityKey
+  });
+  const derivedPubKey = key && key.publicKey ? key.publicKey : null;
+  if (!derivedPubKey || !isValidIdentityKey(derivedPubKey)) {
+    throw new Error('BRC-29 key derivation returned an invalid public key.');
+  }
+  return p2pkhFromPubkey(derivedPubKey);
+}
+
 // Faucet identity key and address (derived at init time)
 let faucetIdentityKey = '';
 let faucetAddress = '';
@@ -339,31 +374,109 @@ async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats 
   }
 }
 
-async function sendScholarshipToIdentityKey(identityKey, satoshis) {
-  const lockingScript = p2pkhFromPubkey(identityKey);
+async function preflightScholarshipRecipient(identityKey, endpoint) {
+  if (!endpoint) {
+    throw new Error('Missing endpoint for scholarship recipient.');
+  }
+  if (endpoint.includes('YOUR_CLAW_HOST')) {
+    throw new Error('Endpoint is placeholder text and not a real URL.');
+  }
+
+  const discovery = await fetchApi(`${endpoint}/discovery`, {
+    signal: AbortSignal.timeout(Math.max(1000, SCHOLARSHIP_SUBMIT_TIMEOUT_MS))
+  });
+  const discoveredKey = discovery && typeof discovery.identityKey === 'string'
+    ? discovery.identityKey
+    : null;
+  if (!discoveredKey || !isValidIdentityKey(discoveredKey)) {
+    throw new Error('Recipient discovery response missing valid identityKey.');
+  }
+  if (discoveredKey !== identityKey) {
+    throw new Error(`Endpoint identity mismatch: expected ${identityKey.substring(0, 16)}..., got ${discoveredKey.substring(0, 16)}...`);
+  }
+}
+
+async function submitScholarshipRemittance(remit) {
+  return fetchApi(`${remit.endpoint}/wallet/submit-payment`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(Math.max(1000, SCHOLARSHIP_SUBMIT_TIMEOUT_MS)),
+    body: JSON.stringify({
+      protocol: '3241645161d8',
+      senderIdentityKey: remit.senderIdentityKey,
+      derivationPrefix: remit.derivationPrefix,
+      derivationSuffix: remit.derivationSuffix,
+      transaction: remit.transaction,
+      amount: remit.satoshis,
+      outputIndex: 0,
+      note: remit.note
+    })
+  });
+}
+
+async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
+  await preflightScholarshipRecipient(identityKey, endpoint);
+
+  const derivationPrefix = randomHex(8);
+  const derivationSuffix = randomHex(8);
+  const lockingScript = await deriveBRC29LockingScript(identityKey, derivationPrefix, derivationSuffix);
+
+  const result = await faucetWallet.createAction({
+    description: `ClawSats scholarship: ${satoshis} sats to ${identityKey.substring(0, 16)}...`,
+    outputs: [{
+      satoshis,
+      lockingScript,
+      outputDescription: 'Scholarship distribution',
+      tags: ['clawsats-scholarship']
+    }],
+    labels: ['clawsats-scholarship'],
+    options: {
+      acceptDelayedBroadcast: false,
+      signAndProcess: true,
+      randomizeOutputs: false
+    }
+  });
+
+  const txid = result.txid || null;
+  const transaction = extractActionTxBase64(result);
+  const remittance = {
+    txid: txid || '',
+    identityKey,
+    endpoint,
+    satoshis,
+    senderIdentityKey: faucetIdentityKey,
+    derivationPrefix,
+    derivationSuffix,
+    transaction,
+    note: `Scholarship payment ${satoshis} sats`,
+    attempts: 0,
+    lastError: null,
+    nextAttemptAt: Date.now(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
   try {
-    const result = await faucetWallet.createAction({
-      description: `ClawSats scholarship: ${satoshis} sats to ${identityKey.substring(0, 16)}...`,
-      outputs: [{
-        satoshis,
-        lockingScript,
-        outputDescription: 'Scholarship distribution'
-      }],
-      labels: ['clawsats-scholarship'],
-      options: { acceptDelayedBroadcast: false }
-    });
-    const txid = result.txid || null;
-    return { txid, status: txid ? 'sent' : 'broadcast_pending' };
+    const ack = await submitScholarshipRemittance(remittance);
+    return {
+      txid,
+      status: txid ? 'sent' : 'broadcast_pending',
+      remittance: ack || null,
+      internalizePending: false
+    };
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
-    if (walletBackend === 'memory' && (
-      msg.toLowerCase().includes('insufficient funds') ||
-      msg.toLowerCase().includes('needed')
-    )) {
-      console.warn('[SCHOLARSHIP] createAction could not see spendable inputs in memory mode; trying direct P2PKH fallback path.');
-      return sendViaDirectP2PKHFallback(identityKey, satoshis);
-    }
-    throw err;
+    remittance.attempts = 1;
+    remittance.lastError = msg;
+    remittance.nextAttemptAt = Date.now() + SCHOLARSHIP_REMIT_RETRY_MS;
+    remittance.updatedAt = new Date().toISOString();
+    queueScholarshipRemittance(remittance);
+    console.warn(`[SCHOLARSHIP] Internalize submit failed for ${identityKey.substring(0, 16)}... queued for retry: ${msg}`);
+    return {
+      txid,
+      status: txid ? 'sent_pending_internalize' : 'broadcast_pending_internalize',
+      remittance: null,
+      internalizePending: true
+    };
   }
 }
 
@@ -773,6 +886,85 @@ function saveFund(fund) {
 
 let fund = loadFund();
 
+const SCHOLARSHIP_REMIT_PATH = path.join(__dirname, 'scholarship-remittances.json');
+function loadScholarshipRemittances() {
+  try {
+    if (fs.existsSync(SCHOLARSHIP_REMIT_PATH)) {
+      const data = JSON.parse(fs.readFileSync(SCHOLARSHIP_REMIT_PATH, 'utf8'));
+      if (data && Array.isArray(data.pending)) {
+        return { pending: data.pending };
+      }
+    }
+  } catch {}
+  return { pending: [] };
+}
+
+function saveScholarshipRemittances(store) {
+  fs.writeFileSync(SCHOLARSHIP_REMIT_PATH, JSON.stringify(store, null, 2));
+}
+
+let scholarshipRemittances = loadScholarshipRemittances();
+
+function queueScholarshipRemittance(remit) {
+  const key = `${remit.txid}:${remit.identityKey}:${remit.derivationPrefix}:${remit.derivationSuffix}`;
+  const idx = scholarshipRemittances.pending.findIndex(r =>
+    `${r.txid}:${r.identityKey}:${r.derivationPrefix}:${r.derivationSuffix}` === key
+  );
+  if (idx >= 0) {
+    scholarshipRemittances.pending[idx] = { ...scholarshipRemittances.pending[idx], ...remit };
+  } else {
+    scholarshipRemittances.pending.push(remit);
+  }
+  saveScholarshipRemittances(scholarshipRemittances);
+}
+
+function removeScholarshipRemittance(remit) {
+  const key = `${remit.txid}:${remit.identityKey}:${remit.derivationPrefix}:${remit.derivationSuffix}`;
+  scholarshipRemittances.pending = scholarshipRemittances.pending.filter(r =>
+    `${r.txid}:${r.identityKey}:${r.derivationPrefix}:${r.derivationSuffix}` !== key
+  );
+  saveScholarshipRemittances(scholarshipRemittances);
+}
+
+async function replayScholarshipRemittances(maxToProcess = 25) {
+  if (!scholarshipRemittances.pending.length) {
+    return { processed: 0, delivered: 0, failed: 0, remaining: 0 };
+  }
+
+  let processed = 0;
+  let delivered = 0;
+  let failed = 0;
+  const now = Date.now();
+
+  for (const remit of [...scholarshipRemittances.pending]) {
+    if (processed >= maxToProcess) break;
+    if (remit.nextAttemptAt && Number(remit.nextAttemptAt) > now) continue;
+
+    processed++;
+    try {
+      await submitScholarshipRemittance(remit);
+      removeScholarshipRemittance(remit);
+      delivered++;
+      console.log(`[SCHOLARSHIP] Internalize delivered for ${remit.identityKey.substring(0, 16)}... txid=${(remit.txid || '').substring(0, 16)}`);
+    } catch (err) {
+      failed++;
+      remit.attempts = Number(remit.attempts || 0) + 1;
+      remit.lastError = err && err.message ? err.message : String(err);
+      remit.nextAttemptAt = Date.now() + SCHOLARSHIP_REMIT_RETRY_MS;
+      remit.updatedAt = new Date().toISOString();
+      queueScholarshipRemittance(remit);
+      console.warn(`[SCHOLARSHIP] Internalize retry failed for ${remit.identityKey.substring(0, 16)}...: ${remit.lastError}`);
+    }
+  }
+
+  return {
+    processed,
+    delivered,
+    failed,
+    remaining: scholarshipRemittances.pending.length
+  };
+}
+
 /**
  * Check the faucet wallet's actual balance via listOutputs.
  * Returns available satoshis.
@@ -933,6 +1125,7 @@ app.get('/api/scholarships/status', async (req, res) => {
     walletBalance: balance,
     totalDistributed: fund.totalDistributed,
     totalDistributions: fund.distributions.length,
+    pendingInternalizations: scholarshipRemittances.pending.length,
     eligibleClaws: scholarship.eligible.length,
     excludedMissingEndpoint: scholarship.excludedMissingEndpoint,
     excludedPlaceholderEndpoint: scholarship.excludedPlaceholderEndpoint,
@@ -1011,17 +1204,21 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   const results = [];
   const errors = [];
   let distributed = 0;
+  let internalizePending = 0;
 
   for (const claw of eligible) {
     if (distributed + perClaw > totalToDistribute) break;
 
     let txid = null;
     let status = 'failed';
+    let remittance = null;
 
     try {
-      const result = await sendScholarshipToIdentityKey(claw.identityKey, perClaw);
+      const result = await sendScholarshipToIdentityKey(claw.identityKey, perClaw, claw.endpoint);
       txid = result.txid;
       status = result.status;
+      remittance = result.remittance || null;
+      if (result.internalizePending) internalizePending++;
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);
       console.warn(`[SCHOLARSHIP] Send failed for ${claw.identityKey.substring(0, 16)}...: ${msg}`);
@@ -1029,7 +1226,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
         identityKey: claw.identityKey,
         error: msg
       });
-      break; // stop this batch on first hard wallet failure
+      continue;
     }
 
     const dist = {
@@ -1038,6 +1235,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
       satoshis: perClaw,
       txid,
       status,
+      remittance,
       distributedAt: new Date().toISOString()
     };
     results.push(dist);
@@ -1057,6 +1255,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     distributed,
     perClaw,
     clawsReached: results.length,
+    internalizePending,
     results,
     errors,
     walletBalance: balance - distributed,
@@ -1086,10 +1285,18 @@ async function main() {
     if (replay.processed > 0) {
       console.log(`[FAUCET] Pending claims replay: processed=${replay.processed} sent=${replay.sent} failed=${replay.failed} remaining=${replay.remaining}`);
     }
+    const remitReplay = await replayScholarshipRemittances(100);
+    if (remitReplay.processed > 0) {
+      console.log(`[SCHOLARSHIP] Internalize replay: processed=${remitReplay.processed} delivered=${remitReplay.delivered} failed=${remitReplay.failed} remaining=${remitReplay.remaining}`);
+    }
     setInterval(async () => {
       const tick = await settlePendingClaims(25);
       if (tick.processed > 0) {
         console.log(`[FAUCET] Pending claims replay tick: processed=${tick.processed} sent=${tick.sent} failed=${tick.failed} remaining=${tick.remaining}`);
+      }
+      const remitTick = await replayScholarshipRemittances(25);
+      if (remitTick.processed > 0) {
+        console.log(`[SCHOLARSHIP] Internalize replay tick: processed=${remitTick.processed} delivered=${remitTick.delivered} failed=${remitTick.failed} remaining=${remitTick.remaining}`);
       }
     }, 60_000).unref();
   }

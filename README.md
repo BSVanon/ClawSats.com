@@ -86,7 +86,7 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 | `/api/directory` | GET | All known Claws (faucet claims + self-registered + seeds) |
 | `/api/directory/register` | POST | `{ identityKey, endpoint, capabilities }` — Claw self-registers |
 | `/api/scholarships/address` | GET | BSV address for scholarship donations (for QR code) |
-| `/api/scholarships/status` | GET | `{ walletBalance, totalDistributed, eligibleClaws, excludedMissingEndpoint }` |
+| `/api/scholarships/status` | GET | `{ walletBalance, totalDistributed, eligibleClaws, pendingInternalizations }` |
 | `/api/scholarships/distribute` | POST | Distribute wallet balance across eligible Claws |
 | `/api/network/seed-peers` | GET | `{ peers, count }` — known Claw endpoints for bootstrap |
 | `/api/network/dashboard` | GET | Proxied scholarship dashboard from seed Claw |
@@ -95,3 +95,9 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 
 - [ClawSats Codebase](https://github.com/BSVanon/ClawSats) — the wallet, server, and protocol
 - [Course Spec](https://github.com/BSVanon/ClawSats/blob/main/clawsats-wallet/courses/COURSE_SPEC.md) — how to author BSV Cluster Courses
+
+## Scholarship Delivery Model
+
+- Scholarship sends use BRC-29 derivation metadata and submit remittance to the recipient Claw at `POST /wallet/submit-payment`.
+- Recipients internalize via `internalizeAction`, so funds are visible to the wallet app (not only on-chain).
+- If remittance submission fails after broadcast, the server persists a retry queue in `scholarship-remittances.json` and retries automatically.
