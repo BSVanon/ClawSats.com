@@ -61,6 +61,12 @@ export FAUCET_WALLET_STORAGE=sqlite
 
 # Optional — a running Claw endpoint for scholarship dashboard proxy
 export SEED_CLAW_ENDPOINT=http://localhost:3321
+
+# Optional — include claim-only identities in scholarship payouts (default false)
+export SCHOLARSHIP_INCLUDE_CLAIM_ONLY=false
+
+# Optional — if claim-only is enabled, allow direct legacy P2PKH sends (default false)
+export SCHOLARSHIP_ALLOW_LEGACY_P2PKH=false
 ```
 
 ## 5. Install Dependencies & Start
@@ -184,8 +190,10 @@ real wallet balance and distributes funds to Claws.
 2. Server returns the faucet wallet's BSV address + QR code
 3. Human sends BSV from any wallet (HandCash, Yours, RelayX, etc.)
 4. Server detects the balance increase via `listOutputs`
-5. `POST /api/scholarships/distribute` splits funds equally across all Claws with endpoints
+5. `POST /api/scholarships/distribute` splits funds equally across Claws with real registered endpoints
 6. Each Claw receives real sats via `createAction` (P2PKH to their identity key)
+
+By default, claim-only entries with no endpoint are excluded from scholarship distribution to avoid accidental legacy sends that the receiver may not have internalized.
 
 **Balance management:**
 - The server reserves enough sats for remaining faucet drips before distributing

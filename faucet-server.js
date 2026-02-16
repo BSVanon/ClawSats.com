@@ -56,6 +56,8 @@ const FAUCET_MIN_RESERVE_SATS = parseInt(process.env.FAUCET_MIN_RESERVE_SATS || 
 const FAUCET_RESERVE_SLOTS = Number.isFinite(Number(process.env.FAUCET_RESERVE_SLOTS))
   ? Math.max(0, parseInt(process.env.FAUCET_RESERVE_SLOTS, 10))
   : null;
+const SCHOLARSHIP_INCLUDE_CLAIM_ONLY = String(process.env.SCHOLARSHIP_INCLUDE_CLAIM_ONLY || 'false').toLowerCase() === 'true';
+const SCHOLARSHIP_ALLOW_LEGACY_P2PKH = String(process.env.SCHOLARSHIP_ALLOW_LEGACY_P2PKH || 'false').toLowerCase() === 'true';
 
 // --- Wallet (lazy-initialized) ---
 let faucetWallet = null;
@@ -593,16 +595,63 @@ let directory = loadDirectory();
 
 function getEligibleClaws() {
   const eligible = [];
-  for (const [key, entry] of Object.entries(directory)) {
-    eligible.push({ identityKey: key, endpoint: entry.endpoint || null });
+  const seen = new Set();
+  let excludedMissingEndpoint = 0;
+  let excludedPlaceholderEndpoint = 0;
+
+  function isUsableEndpoint(endpoint) {
+    if (!endpoint || typeof endpoint !== 'string') return false;
+    if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) return false;
+    if (endpoint.includes('YOUR_CLAW_HOST')) return false;
+    return true;
   }
-  for (const [key] of Object.entries(db.claims)) {
-    if (!eligible.find(e => e.identityKey === key)) {
-      const entry = directory[key];
-      eligible.push({ identityKey: key, endpoint: entry?.endpoint || null });
+
+  for (const [key, entry] of Object.entries(directory)) {
+    const endpoint = entry?.endpoint || null;
+    if (!isValidIdentityKey(key)) continue;
+    if (isUsableEndpoint(endpoint)) {
+      eligible.push({ identityKey: key, endpoint });
+      seen.add(key);
+      continue;
+    }
+    if (endpoint && endpoint.includes('YOUR_CLAW_HOST')) {
+      excludedPlaceholderEndpoint++;
+    } else {
+      excludedMissingEndpoint++;
     }
   }
-  return eligible;
+
+  for (const [key] of Object.entries(db.claims)) {
+    if (seen.has(key) || !isValidIdentityKey(key)) continue;
+    const entry = directory[key] || null;
+    const endpoint = entry?.endpoint || null;
+
+    if (isUsableEndpoint(endpoint)) {
+      eligible.push({ identityKey: key, endpoint });
+      seen.add(key);
+      continue;
+    }
+
+    if (SCHOLARSHIP_INCLUDE_CLAIM_ONLY && SCHOLARSHIP_ALLOW_LEGACY_P2PKH) {
+      eligible.push({ identityKey: key, endpoint: null });
+      seen.add(key);
+      continue;
+    }
+
+    if (endpoint && endpoint.includes('YOUR_CLAW_HOST')) {
+      excludedPlaceholderEndpoint++;
+    } else {
+      excludedMissingEndpoint++;
+    }
+  }
+
+  return {
+    eligible,
+    excludedMissingEndpoint,
+    excludedPlaceholderEndpoint,
+    includeClaimOnly: SCHOLARSHIP_INCLUDE_CLAIM_ONLY,
+    legacyP2PKHEnabled: SCHOLARSHIP_ALLOW_LEGACY_P2PKH
+  };
 }
 
 // GET /api/directory — list all known Claws
@@ -875,7 +924,7 @@ app.get('/api/scholarships/address', (req, res) => {
 
 // GET /api/scholarships/status — fund status with real wallet balance
 app.get('/api/scholarships/status', async (req, res) => {
-  const eligible = getEligibleClaws();
+  const scholarship = getEligibleClaws();
   const balance = await getWalletBalance();
   fund.lastKnownBalance = balance;
   fund.lastBalanceCheck = Date.now();
@@ -884,7 +933,11 @@ app.get('/api/scholarships/status', async (req, res) => {
     walletBalance: balance,
     totalDistributed: fund.totalDistributed,
     totalDistributions: fund.distributions.length,
-    eligibleClaws: eligible.length,
+    eligibleClaws: scholarship.eligible.length,
+    excludedMissingEndpoint: scholarship.excludedMissingEndpoint,
+    excludedPlaceholderEndpoint: scholarship.excludedPlaceholderEndpoint,
+    includeClaimOnly: scholarship.includeClaimOnly,
+    legacyP2PKHEnabled: scholarship.legacyP2PKHEnabled,
     address: faucetAddress || null,
     chain: 'main',
     recentDistributions: fund.distributions.slice(-10).reverse()
@@ -907,15 +960,22 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
   const reserveFromSlots = reserveSlots * MIN_DRIP_SPENDABLE;
   const reserveForFaucet = Math.max(FAUCET_MIN_RESERVE_SATS, reserveFromSlots);
-  const eligible = getEligibleClaws();
+  const scholarship = getEligibleClaws();
+  const eligible = scholarship.eligible;
   const txFeeReserveTotal = eligible.length * Math.max(1, SCHOLARSHIP_TX_FEE_RESERVE);
   const budgetForOutputs = Math.max(0, balance - reserveForFaucet - txFeeReserveTotal);
 
   if (eligible.length === 0) {
+    const missing = scholarship.excludedMissingEndpoint + scholarship.excludedPlaceholderEndpoint;
+    const reason = missing > 0
+      ? 'No eligible Claws: register a real public endpoint first via POST /api/directory/register.'
+      : 'No eligible Claws found yet.';
     return res.json({
       distributed: 0,
-      message: 'No eligible Claws found yet.',
+      message: reason,
       walletBalance: balance,
+      excludedMissingEndpoint: scholarship.excludedMissingEndpoint,
+      excludedPlaceholderEndpoint: scholarship.excludedPlaceholderEndpoint,
       reservedForFaucet: reserveForFaucet,
       faucetMinReserve: FAUCET_MIN_RESERVE_SATS,
       reserveSlots,
@@ -927,6 +987,8 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     return res.json({
       distributed: 0,
       walletBalance: balance,
+      excludedMissingEndpoint: scholarship.excludedMissingEndpoint,
+      excludedPlaceholderEndpoint: scholarship.excludedPlaceholderEndpoint,
       reservedForFaucet: reserveForFaucet,
       faucetMinReserve: FAUCET_MIN_RESERVE_SATS,
       reservedForScholarshipFees: txFeeReserveTotal,

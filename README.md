@@ -39,6 +39,8 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 | `FAUCET_CLAIMS_PATH` | No | JSON path for persisted claims (default: `./faucet-claims.json`) |
 | `FAUCET_WALLET_STORAGE` | No | `sqlite` (default) or `memory` |
 | `SEED_CLAW_ENDPOINT` | No | URL of a running Claw for scholarship dashboard proxy |
+| `SCHOLARSHIP_INCLUDE_CLAIM_ONLY` | No | `true` to include claim-only Claws with no endpoint (default: `false`) |
+| `SCHOLARSHIP_ALLOW_LEGACY_P2PKH` | No | `true` to allow direct legacy P2PKH sends to claim-only Claws (default: `false`) |
 
 ### Funding the Faucet + Scholarships
 
@@ -46,7 +48,7 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 2. Set it: `export FAUCET_ROOT_KEY_HEX=<that key>`
 3. Start the server: `npm start` — it prints the BSV address
 4. Send mainnet BSV to that address using any BSV wallet
-5. The faucet sends drips to new Claws; scholarship funds distribute to all running Claws
+5. The faucet sends drips to new Claws; scholarship funds distribute to Claws with real registered endpoints
 
 The same wallet handles both faucet drips and scholarship distributions. The server reserves
 enough balance for remaining faucet slots before distributing scholarship funds.
@@ -84,7 +86,7 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 | `/api/directory` | GET | All known Claws (faucet claims + self-registered + seeds) |
 | `/api/directory/register` | POST | `{ identityKey, endpoint, capabilities }` — Claw self-registers |
 | `/api/scholarships/address` | GET | BSV address for scholarship donations (for QR code) |
-| `/api/scholarships/status` | GET | `{ walletBalance, totalDistributed, eligibleClaws }` |
+| `/api/scholarships/status` | GET | `{ walletBalance, totalDistributed, eligibleClaws, excludedMissingEndpoint }` |
 | `/api/scholarships/distribute` | POST | Distribute wallet balance across eligible Claws |
 | `/api/network/seed-peers` | GET | `{ peers, count }` — known Claw endpoints for bootstrap |
 | `/api/network/dashboard` | GET | Proxied scholarship dashboard from seed Claw |
