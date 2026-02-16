@@ -46,6 +46,7 @@ expect_status() {
 }
 
 expect_status "/api/faucet/status" "200"
+expect_status "/api/healthz" "200"
 expect_status "/api/directory" "200"
 expect_status "/api/network/seed-peers" "200"
 expect_status "/api/scholarships/status" "200"

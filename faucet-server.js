@@ -24,6 +24,7 @@
  *   GET  /api/scholarships/address     — BSV address for QR code donations
  *   GET  /api/scholarships/status      — { walletBalance, totalDistributed, eligibleClaws }
  *   POST /api/scholarships/distribute  — distribute wallet balance across eligible Claws
+ *   GET  /api/healthz                  — production health summary
  *   GET  /api/network/seed-peers       — list of known seed Claw endpoints
  *   GET  /api/network/dashboard        — proxied scholarship dashboard from seed Claw
  *
@@ -35,9 +36,18 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const dns = require('dns').promises;
+const net = require('net');
 
 const app = express();
 app.use(express.json({ limit: '16kb' }));
+app.disable('x-powered-by');
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Invalid JSON body.' });
+  }
+  return next(err);
+});
 
 // --- Config ---
 const DRIP_AMOUNT = 100;
@@ -60,6 +70,23 @@ const SCHOLARSHIP_INCLUDE_CLAIM_ONLY = String(process.env.SCHOLARSHIP_INCLUDE_CL
 const SCHOLARSHIP_ALLOW_LEGACY_P2PKH = String(process.env.SCHOLARSHIP_ALLOW_LEGACY_P2PKH || 'false').toLowerCase() === 'true';
 const SCHOLARSHIP_SUBMIT_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_SUBMIT_TIMEOUT_MS || '10000', 10);
 const SCHOLARSHIP_REMIT_RETRY_MS = parseInt(process.env.SCHOLARSHIP_REMIT_RETRY_MS || '60000', 10);
+const SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS || '12000', 10);
+const TRUST_PROXY_HOPS = Math.max(0, parseInt(process.env.TRUST_PROXY_HOPS || '1', 10));
+const RATE_LIMIT_DRIP_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_DRIP_PER_MIN || '5', 10));
+const RATE_LIMIT_REGISTER_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_REGISTER_PER_MIN || '20', 10));
+const RATE_LIMIT_DISTRIBUTE_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_DISTRIBUTE_PER_MIN || '8', 10));
+const RATE_LIMIT_WINDOW_MS = Math.max(1000, parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10));
+
+app.set('trust proxy', TRUST_PROXY_HOPS);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if ((req.secure || req.headers['x-forwarded-proto'] === 'https') && req.method === 'GET') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 
 // --- Wallet (lazy-initialized) ---
 let faucetWallet = null;
@@ -67,6 +94,7 @@ let walletReady = false;
 let walletError = null;
 let walletBackend = 'none';
 let settlingPendingClaims = false;
+let replayingScholarshipRemittances = false;
 
 function getPkgVersion(name) {
   try {
@@ -261,6 +289,95 @@ function randomHex(bytes = 8) {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
+function stripTrailingSlash(url) {
+  return url.replace(/\/+$/, '');
+}
+
+function isPrivateIPv4(ip) {
+  const parts = ip.split('.').map(n => parseInt(n, 10));
+  if (parts.length !== 4 || parts.some(n => Number.isNaN(n) || n < 0 || n > 255)) return true;
+  if (parts[0] === 10) return true;
+  if (parts[0] === 127) return true;
+  if (parts[0] === 0) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] >= 224) return true; // multicast/reserved
+  return false;
+}
+
+function isPrivateIPv6(ip) {
+  const lower = ip.toLowerCase();
+  if (lower === '::1' || lower === '::') return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local
+  if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true; // link-local
+  return false;
+}
+
+function isBlockedHostname(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return true;
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === 'metadata.google.internal' || host === 'metadata') return true;
+  if (host.endsWith('.local') || host.endsWith('.internal')) return true;
+  return false;
+}
+
+function isPublicIp(ip) {
+  const candidate = String(ip || '').replace(/^\[|\]$/g, '');
+  const family = net.isIP(candidate);
+  if (family === 4) return !isPrivateIPv4(candidate);
+  if (family === 6) return !isPrivateIPv6(candidate);
+  return false;
+}
+
+async function assertHostnameResolvesPublic(hostname) {
+  const answers = await dns.lookup(hostname, { all: true, verbatim: true });
+  if (!Array.isArray(answers) || answers.length === 0) {
+    throw new Error('Endpoint hostname did not resolve.');
+  }
+  for (const answer of answers) {
+    if (!answer || !isPublicIp(answer.address)) {
+      throw new Error('Endpoint hostname resolves to non-public IP.');
+    }
+  }
+}
+
+async function normalizePublicEndpoint(endpoint) {
+  if (!endpoint || typeof endpoint !== 'string') {
+    throw new Error('Invalid endpoint URL.');
+  }
+  if (endpoint.length > 2048) {
+    throw new Error('Endpoint URL is too long.');
+  }
+  if (endpoint.includes('YOUR_CLAW_HOST')) {
+    throw new Error('Endpoint is placeholder text and not a real URL.');
+  }
+  const url = new URL(endpoint);
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Endpoint must use http:// or https://');
+  }
+  if (url.username || url.password) {
+    throw new Error('Endpoint must not include credentials.');
+  }
+  if (!url.hostname || isBlockedHostname(url.hostname)) {
+    throw new Error('Endpoint hostname is not allowed.');
+  }
+
+  const hostIpFamily = net.isIP(String(url.hostname || '').replace(/^\[|\]$/g, ''));
+  if (hostIpFamily) {
+    if (!isPublicIp(url.hostname)) {
+      throw new Error('Endpoint must resolve to a public IP.');
+    }
+  } else {
+    await assertHostnameResolvesPublic(url.hostname);
+  }
+
+  url.hash = '';
+  url.search = '';
+  return stripTrailingSlash(url.toString());
+}
+
 function extractActionTxBase64(actionResult) {
   if (!actionResult) throw new Error('createAction returned no result');
   if (actionResult.rawTx) {
@@ -375,14 +492,10 @@ async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats 
 }
 
 async function preflightScholarshipRecipient(identityKey, endpoint) {
-  if (!endpoint) {
-    throw new Error('Missing endpoint for scholarship recipient.');
-  }
-  if (endpoint.includes('YOUR_CLAW_HOST')) {
-    throw new Error('Endpoint is placeholder text and not a real URL.');
-  }
+  if (!endpoint) throw new Error('Missing endpoint for scholarship recipient.');
+  const safeEndpoint = await normalizePublicEndpoint(endpoint);
 
-  const discovery = await fetchApi(`${endpoint}/discovery`, {
+  const discovery = await fetchApi(`${safeEndpoint}/discovery`, {
     signal: AbortSignal.timeout(Math.max(1000, SCHOLARSHIP_SUBMIT_TIMEOUT_MS))
   });
   const discoveredKey = discovery && typeof discovery.identityKey === 'string'
@@ -394,9 +507,13 @@ async function preflightScholarshipRecipient(identityKey, endpoint) {
   if (discoveredKey !== identityKey) {
     throw new Error(`Endpoint identity mismatch: expected ${identityKey.substring(0, 16)}..., got ${discoveredKey.substring(0, 16)}...`);
   }
+  return safeEndpoint;
 }
 
 async function submitScholarshipRemittance(remit) {
+  if (!remit || typeof remit.transaction !== 'string' || remit.transaction.length < 16) {
+    throw new Error('Missing remittance transaction payload.');
+  }
   return fetchApi(`${remit.endpoint}/wallet/submit-payment`, {
     method: 'POST',
     signal: AbortSignal.timeout(Math.max(1000, SCHOLARSHIP_SUBMIT_TIMEOUT_MS)),
@@ -414,39 +531,72 @@ async function submitScholarshipRemittance(remit) {
 }
 
 async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
-  await preflightScholarshipRecipient(identityKey, endpoint);
+  const safeEndpoint = await preflightScholarshipRecipient(identityKey, endpoint);
 
   const derivationPrefix = randomHex(8);
   const derivationSuffix = randomHex(8);
   const lockingScript = await deriveBRC29LockingScript(identityKey, derivationPrefix, derivationSuffix);
 
-  const result = await faucetWallet.createAction({
-    description: `ClawSats scholarship: ${satoshis} sats to ${identityKey.substring(0, 16)}...`,
-    outputs: [{
-      satoshis,
-      lockingScript,
-      outputDescription: 'Scholarship distribution',
-      tags: ['clawsats-scholarship']
-    }],
-    labels: ['clawsats-scholarship'],
-    options: {
-      acceptDelayedBroadcast: false,
-      signAndProcess: true,
-      randomizeOutputs: false
-    }
-  });
+  let txid = null;
+  let transaction = null;
+  let txhex = null;
 
-  const txid = result.txid || null;
-  const transaction = extractActionTxBase64(result);
+  try {
+    const result = await faucetWallet.createAction({
+      description: `ClawSats scholarship: ${satoshis} sats to ${identityKey.substring(0, 16)}...`,
+      outputs: [{
+        satoshis,
+        lockingScript,
+        outputDescription: 'Scholarship distribution',
+        tags: ['clawsats-scholarship']
+      }],
+      labels: ['clawsats-scholarship'],
+      options: {
+        acceptDelayedBroadcast: false,
+        signAndProcess: true,
+        randomizeOutputs: false
+      }
+    });
+    txid = result.txid || null;
+    transaction = extractActionTxBase64(result);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (!(walletBackend === 'memory' && (
+      msg.toLowerCase().includes('insufficient funds') ||
+      msg.toLowerCase().includes('needed')
+    ))) {
+      throw err;
+    }
+    // Bridge mode for legacy-funded wallets: spend address UTXOs directly,
+    // but still pay to a BRC-29 derived script so the recipient can internalize.
+    console.warn('[SCHOLARSHIP] createAction could not see spendable inputs in memory mode; trying direct legacy-input bridge with BRC-29 remittance.');
+    const direct = await sendViaDirectP2PKHFallback(identityKey, satoshis, { recipientScriptHex: lockingScript });
+    txid = direct.txid || null;
+    transaction = direct.transaction || null;
+    txhex = direct.txhex || null;
+    if (!txid) {
+      throw new Error('Direct legacy-input bridge did not return a txid.');
+    }
+    if (!transaction) {
+      try {
+        transaction = await buildVerifiedAtomicRemittanceByTxid(txid);
+      } catch (repairErr) {
+        const rmsg = repairErr && repairErr.message ? repairErr.message : String(repairErr);
+        console.warn(`[SCHOLARSHIP] Could not build immediate AtomicBEEF payload for ${identityKey.substring(0, 16)}... txid=${txid.substring(0, 16)}: ${rmsg}`);
+      }
+    }
+  }
+
   const remittance = {
     txid: txid || '',
     identityKey,
-    endpoint,
+    endpoint: safeEndpoint,
     satoshis,
     senderIdentityKey: faucetIdentityKey,
     derivationPrefix,
     derivationSuffix,
     transaction,
+    txhex,
     note: `Scholarship payment ${satoshis} sats`,
     attempts: 0,
     lastError: null,
@@ -531,18 +681,22 @@ async function settlePendingClaims(maxClaims = 50) {
 
 // --- Rate limiting ---
 const rateLimits = new Map();
-const RATE_LIMIT_WINDOW = 60000;
-const RATE_LIMIT_MAX = 5;
-
-function checkRateLimit(ip) {
+function checkRateLimit(ip, routeKey, limitMax, limitWindowMs = RATE_LIMIT_WINDOW_MS) {
+  const key = `${routeKey}:${ip || 'unknown'}`;
   const now = Date.now();
-  const entry = rateLimits.get(ip);
-  if (!entry || now - entry.start > RATE_LIMIT_WINDOW) {
-    rateLimits.set(ip, { start: now, count: 1 });
+  if (rateLimits.size > 50000) {
+    for (const [k, v] of rateLimits) {
+      if (!v || now - v.start > limitWindowMs) rateLimits.delete(k);
+    }
+  }
+  const entry = rateLimits.get(key);
+  if (!entry || now - entry.start > limitWindowMs) {
+    rateLimits.set(key, { start: now, count: 1 });
     return true;
   }
   entry.count++;
-  return entry.count <= RATE_LIMIT_MAX;
+  if (entry.count > limitMax) return false;
+  return true;
 }
 
 // --- Routes ---
@@ -573,7 +727,7 @@ app.get('/api/faucet/status', async (req, res) => {
 // Faucet drip — sends real mainnet sats when wallet is funded
 app.post('/api/faucet/drip', async (req, res) => {
   const ip = req.ip || req.connection.remoteAddress;
-  if (!checkRateLimit(ip)) {
+  if (!checkRateLimit(ip, 'faucet-drip', RATE_LIMIT_DRIP_PER_MIN)) {
     return res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
   }
 
@@ -714,9 +868,18 @@ function getEligibleClaws() {
 
   function isUsableEndpoint(endpoint) {
     if (!endpoint || typeof endpoint !== 'string') return false;
-    if (!endpoint.startsWith('http://') && !endpoint.startsWith('https://')) return false;
     if (endpoint.includes('YOUR_CLAW_HOST')) return false;
-    return true;
+    try {
+      const url = new URL(endpoint);
+      if (!['http:', 'https:'].includes(url.protocol)) return false;
+      if (url.username || url.password) return false;
+      if (!url.hostname || isBlockedHostname(url.hostname)) return false;
+      const family = net.isIP(String(url.hostname || '').replace(/^\[|\]$/g, ''));
+      if (family && !isPublicIp(url.hostname)) return false;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   for (const [key, entry] of Object.entries(directory)) {
@@ -820,9 +983,9 @@ app.get('/api/directory', (req, res) => {
 });
 
 // POST /api/directory/register — a Claw registers its endpoint after going live
-app.post('/api/directory/register', (req, res) => {
+app.post('/api/directory/register', async (req, res) => {
   const ip = req.ip || req.connection.remoteAddress;
-  if (!checkRateLimit(ip)) {
+  if (!checkRateLimit(ip, 'directory-register', RATE_LIMIT_REGISTER_PER_MIN)) {
     return res.status(429).json({ error: 'Too many requests.' });
   }
 
@@ -832,18 +995,21 @@ app.post('/api/directory/register', (req, res) => {
     return res.status(400).json({ error: 'Invalid identity key.' });
   }
 
-  if (!endpoint || typeof endpoint !== 'string' || !endpoint.startsWith('http')) {
-    return res.status(400).json({ error: 'Invalid endpoint URL. Must start with http:// or https://' });
-  }
-
-  // Sanitize endpoint
-  try { new URL(endpoint); } catch {
-    return res.status(400).json({ error: 'Malformed endpoint URL.' });
+  let normalizedEndpoint;
+  try {
+    normalizedEndpoint = await normalizePublicEndpoint(endpoint);
+  } catch (err) {
+    const msg = err && err.message ? err.message : 'Invalid endpoint URL.';
+    return res.status(400).json({ error: msg });
   }
 
   directory[identityKey] = {
-    endpoint: endpoint.replace(/\/+$/, ''),  // strip trailing slashes
-    capabilities: Array.isArray(capabilities) ? capabilities.slice(0, 20) : null,
+    endpoint: normalizedEndpoint,
+    capabilities: Array.isArray(capabilities)
+      ? capabilities
+          .filter(c => typeof c === 'string' && c.length > 0 && c.length <= 64)
+          .slice(0, 20)
+      : null,
     registeredAt: new Date().toISOString(),
     ip: ip
   };
@@ -926,43 +1092,154 @@ function removeScholarshipRemittance(remit) {
   saveScholarshipRemittances(scholarshipRemittances);
 }
 
+function isAtomicRemittanceError(message) {
+  const text = String(message || '').toLowerCase();
+  return (
+    text.includes('must be valid atomicbeef') ||
+    text.includes('must be valid with at least one transaction to internalize an output from')
+  );
+}
+
+function parseWocTxHex(raw) {
+  if (typeof raw === 'string') {
+    const cleaned = raw.trim().replace(/^"|"$/g, '');
+    if (/^[0-9a-fA-F]+$/.test(cleaned) && cleaned.length % 2 === 0) return cleaned;
+  } else if (raw && typeof raw.hex === 'string') {
+    return raw.hex.trim();
+  } else if (raw && typeof raw.txhex === 'string') {
+    return raw.txhex.trim();
+  }
+  throw new Error('Could not parse tx hex response.');
+}
+
+function buildMerklePathFromWocProof(txid, proof, MerklePath) {
+  if (!proof || !Number.isInteger(proof.block_height) || !Number.isInteger(proof.pos) || !Array.isArray(proof.merkle)) {
+    throw new Error('Invalid merkle proof payload.');
+  }
+  const siblings = proof.merkle;
+  if (!siblings.every(h => typeof h === 'string' && /^[0-9a-fA-F]{64}$/.test(h))) {
+    throw new Error('Merkle proof contains invalid sibling hashes.');
+  }
+
+  if (siblings.length === 0) {
+    return new MerklePath(proof.block_height, [[{ offset: proof.pos, hash: txid, txid: true }]]);
+  }
+
+  const path = [];
+  path[0] = [
+    { offset: proof.pos, hash: txid, txid: true },
+    { offset: (proof.pos ^ 1), hash: siblings[0] }
+  ];
+  for (let h = 1; h < siblings.length; h++) {
+    path[h] = [{ offset: ((proof.pos >> h) ^ 1), hash: siblings[h] }];
+  }
+  return new MerklePath(proof.block_height, path);
+}
+
+async function buildVerifiedAtomicRemittanceByTxid(txid) {
+  if (!txid || typeof txid !== 'string') {
+    throw new Error('Cannot rebuild remittance payload: missing txid.');
+  }
+  const { Transaction, MerklePath, Beef, WhatsOnChain } = require('@bsv/sdk');
+
+  const timeout = Math.max(1000, SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS);
+  const [txhexRaw, proof] = await Promise.all([
+    fetchApi(`${WOC_API_BASE}/tx/${txid}/hex`, { signal: AbortSignal.timeout(timeout) }),
+    fetchApi(`${WOC_API_BASE}/tx/${txid}/merkleproof`, { signal: AbortSignal.timeout(timeout) })
+  ]);
+
+  const txhex = parseWocTxHex(txhexRaw);
+  const tx = Transaction.fromHex(txhex);
+  tx.merklePath = buildMerklePathFromWocProof(txid, proof, MerklePath);
+
+  const atomic = tx.toAtomicBEEF(true);
+  const beef = Beef.fromBinary(atomic);
+  const ok = await beef.verify(new WhatsOnChain('main'), false);
+  if (!ok) {
+    throw new Error(`AtomicBEEF verification failed for ${txid}.`);
+  }
+  return Buffer.from(atomic).toString('base64');
+}
+
+async function repairScholarshipRemittance(remit, reason = 'unknown') {
+  if (!remit || !remit.txid) {
+    throw new Error('Cannot repair remittance payload without txid.');
+  }
+  const atomicBase64 = await buildVerifiedAtomicRemittanceByTxid(remit.txid);
+  remit.transaction = atomicBase64;
+  remit.lastError = null;
+  remit.nextAttemptAt = Date.now();
+  remit.updatedAt = new Date().toISOString();
+  queueScholarshipRemittance(remit);
+  console.log(`[SCHOLARSHIP] Rebuilt AtomicBEEF remittance for ${remit.identityKey.substring(0, 16)}... txid=${(remit.txid || '').substring(0, 16)} reason=${reason}`);
+}
+
 async function replayScholarshipRemittances(maxToProcess = 25) {
+  if (replayingScholarshipRemittances) {
+    return { processed: 0, delivered: 0, failed: 0, remaining: scholarshipRemittances.pending.length };
+  }
   if (!scholarshipRemittances.pending.length) {
     return { processed: 0, delivered: 0, failed: 0, remaining: 0 };
   }
 
-  let processed = 0;
-  let delivered = 0;
-  let failed = 0;
-  const now = Date.now();
+  replayingScholarshipRemittances = true;
+  try {
+    let processed = 0;
+    let delivered = 0;
+    let failed = 0;
+    const now = Date.now();
 
-  for (const remit of [...scholarshipRemittances.pending]) {
-    if (processed >= maxToProcess) break;
-    if (remit.nextAttemptAt && Number(remit.nextAttemptAt) > now) continue;
+    for (const remit of [...scholarshipRemittances.pending]) {
+      if (processed >= maxToProcess) break;
+      if (remit.nextAttemptAt && Number(remit.nextAttemptAt) > now) continue;
 
-    processed++;
-    try {
-      await submitScholarshipRemittance(remit);
-      removeScholarshipRemittance(remit);
-      delivered++;
-      console.log(`[SCHOLARSHIP] Internalize delivered for ${remit.identityKey.substring(0, 16)}... txid=${(remit.txid || '').substring(0, 16)}`);
-    } catch (err) {
-      failed++;
-      remit.attempts = Number(remit.attempts || 0) + 1;
-      remit.lastError = err && err.message ? err.message : String(err);
-      remit.nextAttemptAt = Date.now() + SCHOLARSHIP_REMIT_RETRY_MS;
-      remit.updatedAt = new Date().toISOString();
-      queueScholarshipRemittance(remit);
-      console.warn(`[SCHOLARSHIP] Internalize retry failed for ${remit.identityKey.substring(0, 16)}...: ${remit.lastError}`);
+      processed++;
+      try {
+        // Older queued entries may have a malformed or partial tx payload; self-heal before submit.
+        if (typeof remit.transaction !== 'string' || remit.transaction.length < 16) {
+          await repairScholarshipRemittance(remit, 'missing_or_invalid_payload');
+        }
+
+        await submitScholarshipRemittance(remit);
+        removeScholarshipRemittance(remit);
+        delivered++;
+        console.log(`[SCHOLARSHIP] Internalize delivered for ${remit.identityKey.substring(0, 16)}... txid=${(remit.txid || '').substring(0, 16)}`);
+      } catch (err) {
+        let message = err && err.message ? err.message : String(err);
+
+        // If recipient rejects tx payload validation, rebuild a proof-backed AtomicBEEF and retry once.
+        if (isAtomicRemittanceError(message) && remit.txid) {
+          try {
+            await repairScholarshipRemittance(remit, 'recipient_rejected_payload');
+            await submitScholarshipRemittance(remit);
+            removeScholarshipRemittance(remit);
+            delivered++;
+            console.log(`[SCHOLARSHIP] Internalize delivered after remittance repair for ${remit.identityKey.substring(0, 16)}... txid=${(remit.txid || '').substring(0, 16)}`);
+            continue;
+          } catch (repairErr) {
+            message = repairErr && repairErr.message ? repairErr.message : String(repairErr);
+          }
+        }
+
+        failed++;
+        remit.attempts = Number(remit.attempts || 0) + 1;
+        remit.lastError = message;
+        remit.nextAttemptAt = Date.now() + SCHOLARSHIP_REMIT_RETRY_MS;
+        remit.updatedAt = new Date().toISOString();
+        queueScholarshipRemittance(remit);
+        console.warn(`[SCHOLARSHIP] Internalize retry failed for ${remit.identityKey.substring(0, 16)}...: ${remit.lastError}`);
+      }
     }
-  }
 
-  return {
-    processed,
-    delivered,
-    failed,
-    remaining: scholarshipRemittances.pending.length
-  };
+    return {
+      processed,
+      delivered,
+      failed,
+      remaining: scholarshipRemittances.pending.length
+    };
+  } finally {
+    replayingScholarshipRemittances = false;
+  }
 }
 
 /**
@@ -1010,7 +1287,7 @@ async function getWalletBalance() {
   }
 }
 
-async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
+async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, options = {}) {
   if (!FAUCET_ROOT_KEY_HEX || !faucetAddress) {
     throw new Error('Direct P2PKH fallback unavailable: missing faucet key/address.');
   }
@@ -1019,7 +1296,7 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
 
   const priv = PrivateKey.fromHex(FAUCET_ROOT_KEY_HEX);
   const unlock = new P2PKH().unlock(priv);
-  const recipientScriptHex = p2pkhFromPubkey(recipientIdentityKey);
+  const recipientScriptHex = options.recipientScriptHex || p2pkhFromPubkey(recipientIdentityKey);
 
   const rawUtxos = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/unspent`);
   const baseUtxos = (Array.isArray(rawUtxos) ? rawUtxos : [])
@@ -1095,8 +1372,12 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
     throw new Error(`Broadcast response missing txid: ${JSON.stringify(br).slice(0, 240)}`);
   }
 
+  // Do not emit immediate AtomicBEEF from raw tx only; it may be missing proof.
+  // Caller will rebuild a proof-backed payload from txid or queue for replay repair.
+  const transaction = null;
+
   console.log(`[FAUCET] Direct P2PKH fallback broadcast txid=${txid.substring(0, 16)}... inputs=${selected} totalIn=${inputTotal}`);
-  return { txid, status: 'sent' };
+  return { txid, status: 'sent', transaction, txhex };
 }
 
 // GET /api/scholarships/address — the BSV address to send scholarship donations to
@@ -1137,10 +1418,33 @@ app.get('/api/scholarships/status', async (req, res) => {
   });
 });
 
+// GET /api/healthz — production health summary
+app.get('/api/healthz', async (req, res) => {
+  const balance = await getWalletBalance();
+  const pendingClaims = getPendingClaimEntries().length;
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptimeSec: Math.round(process.uptime()),
+    walletReady,
+    walletBackend,
+    walletBalance: balance,
+    pendingClaims,
+    pendingInternalizations: scholarshipRemittances.pending.length,
+    knownDirectoryEntries: Object.keys(directory).length,
+    faucetClaims: db.count
+  });
+});
+
 // POST /api/scholarships/distribute — distribute wallet balance across eligible Claws
 // This sends REAL sats from the faucet wallet to Claws.
 // The wallet must have balance (from human donations sent to the QR code address).
 app.post('/api/scholarships/distribute', async (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  if (!checkRateLimit(ip, 'scholarship-distribute', RATE_LIMIT_DISTRIBUTE_PER_MIN)) {
+    return res.status(429).json({ error: 'Too many distribution requests. Try again in a minute.' });
+  }
+
   if (!walletReady || !faucetWallet) {
     return res.status(503).json({ error: 'Faucet wallet not ready. Cannot distribute.' });
   }
@@ -1290,13 +1594,18 @@ async function main() {
       console.log(`[SCHOLARSHIP] Internalize replay: processed=${remitReplay.processed} delivered=${remitReplay.delivered} failed=${remitReplay.failed} remaining=${remitReplay.remaining}`);
     }
     setInterval(async () => {
-      const tick = await settlePendingClaims(25);
-      if (tick.processed > 0) {
-        console.log(`[FAUCET] Pending claims replay tick: processed=${tick.processed} sent=${tick.sent} failed=${tick.failed} remaining=${tick.remaining}`);
-      }
-      const remitTick = await replayScholarshipRemittances(25);
-      if (remitTick.processed > 0) {
-        console.log(`[SCHOLARSHIP] Internalize replay tick: processed=${remitTick.processed} delivered=${remitTick.delivered} failed=${remitTick.failed} remaining=${remitTick.remaining}`);
+      try {
+        const tick = await settlePendingClaims(25);
+        if (tick.processed > 0) {
+          console.log(`[FAUCET] Pending claims replay tick: processed=${tick.processed} sent=${tick.sent} failed=${tick.failed} remaining=${tick.remaining}`);
+        }
+        const remitTick = await replayScholarshipRemittances(25);
+        if (remitTick.processed > 0) {
+          console.log(`[SCHOLARSHIP] Internalize replay tick: processed=${remitTick.processed} delivered=${remitTick.delivered} failed=${remitTick.failed} remaining=${remitTick.remaining}`);
+        }
+      } catch (tickErr) {
+        const msg = tickErr && tickErr.message ? tickErr.message : String(tickErr);
+        console.error(`[FAUCET] Replay tick failed: ${msg}`);
       }
     }, 60_000).unref();
   }

@@ -104,10 +104,14 @@ pre code { background: none; padding: 0; color: var(--text); }
   justify-content: space-between;
 }
 .nav-logo {
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: var(--white);
-  letter-spacing: -.02em;
+  display: inline-flex;
+  align-items: center;
+}
+.nav-logo-wordmark {
+  width: 170px;
+  max-width: 42vw;
+  height: auto;
+  display: block;
 }
 .nav-links { display: flex; align-items: center; gap: 1.5rem; }
 .nav-links a { color: var(--muted); font-size: .9rem; font-weight: 500; }
@@ -157,7 +161,7 @@ pre code { background: none; padding: 0; color: var(--text); }
 /* ── Hero Logo ── */
 
 .hero-logo {
-  width: 180px;
+  width: 198px;
   height: auto;
   margin: 0 auto 2rem;
   display: block;
@@ -302,7 +306,7 @@ pre code { background: none; padding: 0; color: var(--text); }
   font-size: 1.05rem;
 }
 
-/* ── TLDR ── */
+/* ── Why ClawSats Box ── */
 
 .tldr-box {
   background: var(--surface);
@@ -469,6 +473,15 @@ pre code { background: none; padding: 0; color: var(--text); }
 }
 .start-step h3 { font-size: 1.1rem; margin-bottom: .75rem; color: var(--accent); }
 .start-step p { color: var(--muted); font-size: .9rem; margin-top: .75rem; }
+.start-step pre {
+  overflow-x: visible;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.start-step pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 /* ── Security Grid ── */
 
@@ -503,6 +516,12 @@ pre code { background: none; padding: 0; color: var(--text); }
   font-weight: 800;
   color: var(--white);
   margin-bottom: .5rem;
+}
+.footer-logo-wordmark {
+  width: 180px;
+  height: auto;
+  display: block;
+  margin-bottom: .75rem;
 }
 .footer-grid p { color: var(--muted); font-size: .9rem; }
 .footer-grid h4 {
@@ -632,5 +651,7 @@ pre code { background: none; padding: 0; color: var(--text); }
   .footer-grid { grid-template-columns: 1fr; gap: 1.5rem; }
   .flow-diagram pre { font-size: .72rem; }
   .faucet-input-row { flex-direction: column; }
-  .hero-logo { width: 140px; }
+  .hero-logo { width: 154px; }
+  .nav-logo-wordmark { width: 146px; }
+  .start-step pre { font-size: .82rem; }
 }

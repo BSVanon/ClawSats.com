@@ -7,7 +7,10 @@
     "start": "node faucet-server.js",
     "dev": "node faucet-server.js",
     "smoke": "bash scripts/smoke-api.sh",
-    "verify": "npm install && npm run smoke"
+    "verify": "npm install && npm run smoke",
+    "repair:remittances": "node scripts/repair-scholarship-remittances.js",
+    "preflight:prod": "bash scripts/preflight-prod.sh",
+    "check:openclaw": "bash scripts/check-openclaw.sh"
   },
   "dependencies": {
     "@bsv/sdk": "^2.0.3",

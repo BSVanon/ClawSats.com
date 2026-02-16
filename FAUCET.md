@@ -59,6 +59,12 @@ export FAUCET_CLAIMS_PATH=/var/lib/clawsats/faucet-claims.json
 # Optional — wallet storage backend (sqlite|memory, default sqlite)
 export FAUCET_WALLET_STORAGE=sqlite
 
+# Optional — WhatsOnChain API base for balance + remittance proof repair
+export WOC_API_BASE=https://api.whatsonchain.com/v1/bsv/main
+
+# Optional — trust proxy hop count (set to 1 behind nginx)
+export TRUST_PROXY_HOPS=1
+
 # Optional — a running Claw endpoint for scholarship dashboard proxy
 export SEED_CLAW_ENDPOINT=http://localhost:3321
 
@@ -67,6 +73,21 @@ export SCHOLARSHIP_INCLUDE_CLAIM_ONLY=false
 
 # Optional — if claim-only is enabled, allow direct legacy P2PKH sends (default false)
 export SCHOLARSHIP_ALLOW_LEGACY_P2PKH=false
+
+# Optional — timeout for recipient internalize submit calls
+export SCHOLARSHIP_SUBMIT_TIMEOUT_MS=10000
+
+# Optional — retry interval for queued scholarship remittances
+export SCHOLARSHIP_REMIT_RETRY_MS=60000
+
+# Optional — timeout for tx/proof fetch during remittance auto-repair
+export SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS=12000
+
+# Optional — public abuse controls
+export RATE_LIMIT_WINDOW_MS=60000
+export RATE_LIMIT_DRIP_PER_MIN=5
+export RATE_LIMIT_REGISTER_PER_MIN=20
+export RATE_LIMIT_DISTRIBUTE_PER_MIN=8
 ```
 
 ## 5. Install Dependencies & Start
@@ -167,6 +188,9 @@ curl https://clawsats.com/api/directory
 # Check scholarship fund status (shows wallet balance + eligible Claws)
 curl https://clawsats.com/api/scholarships/status
 
+# Check service health summary
+curl https://clawsats.com/api/healthz
+
 # Get the BSV address for scholarship donations
 curl https://clawsats.com/api/scholarships/address
 
@@ -177,6 +201,16 @@ curl -X POST https://clawsats.com/api/faucet/drip \
 
 # Trigger scholarship distribution (sends real sats to eligible Claws)
 curl -X POST https://clawsats.com/api/scholarships/distribute
+```
+
+## 8.1 Production Preflight (Recommended)
+
+Run from `/opt/clawsats.com` before going public:
+
+```bash
+npm ci --omit=dev
+BASE_URL=http://127.0.0.1:3322 ./scripts/preflight-prod.sh
+OPENCLAW_BASE_URL=http://127.0.0.1:3321 ./scripts/check-openclaw.sh
 ```
 
 ## 9. Scholarship Fund
@@ -195,6 +229,19 @@ real wallet balance and distributes funds to Claws.
 
 By default, claim-only entries with no endpoint are excluded from scholarship distribution to avoid accidental legacy sends that the receiver may not have internalized.
 Scholarship remittance is submitted to each recipient Claw via `POST /wallet/submit-payment`, where the Claw internalizes the payment into wallet state. If submission is temporarily unreachable, retries are persisted in `scholarship-remittances.json`.
+If the queued payload is invalid or partial, replay auto-rebuilds a verified AtomicBEEF payload from WhatsOnChain tx hex + merkle proof and retries submit.
+
+### Manual Remittance Repair (Operator Tool)
+
+If you need to force-repair old queue entries after upgrading:
+
+```bash
+cd /opt/clawsats.com
+npm run repair:remittances
+SCHOLARSHIP_INCLUDE_CLAIM_ONLY=false SCHOLARSHIP_ALLOW_LEGACY_P2PKH=false pm2 restart clawsats-website --update-env
+```
+
+This rewrites pending payloads in `scholarship-remittances.json` to verified AtomicBEEF and resets retry counters so replay can deliver immediately.
 
 **Balance management:**
 - The server reserves enough sats for remaining faucet drips before distributing
