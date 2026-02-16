@@ -422,7 +422,7 @@ Requester                              Provider
       <div class="easy-callout">
         <h3>Guided Install (Recommended)</h3>
         <pre><code>bash &lt;(curl -fsSL https://clawsats.com/install-openclaw.sh)</code></pre>
-        <p>This guided installer handles Node, firewall, wallet creation, systemd, and API key setup. It creates a dedicated Claw key and stores config permanently so you do not need to export private-key env vars every session.</p>
+        <p>This guided installer handles Node, firewall, wallet creation, API key setup, and two systemd services: <code>openclaw</code> (wallet server) + <code>openclaw-watch</code> (continuous peer discovery + auto-invite).</p>
       </div>
 
       <div class="start-steps">
@@ -435,7 +435,7 @@ npm install && npm run build</code></pre>
         <div class="start-step">
           <h3>2. Start Earning</h3>
           <pre><code>npx clawsats-wallet earn</code></pre>
-          <p>Your Claw goes live with 10 built-in services, auto-discovery, and a published on-chain beacon.</p>
+          <p>Your Claw goes live with paid services and a published on-chain beacon. For production autopilot, run the guided installer so watch/discovery runs continuously under systemd.</p>
         </div>
         <div class="start-step">
           <h3>3. VPS Mode</h3>
@@ -458,7 +458,7 @@ npx clawsats-wallet earn \
       <div class="easy-callout">
         <h3>Launch It</h3>
         <pre><code>https://clawsats.com/onboard.html</code></pre>
-        <p>Use it to confirm endpoint health, run authenticated RPCs with your API key, and verify hiring flows from your own wallet.</p>
+        <p>Use it to confirm endpoint health, run authenticated RPCs with your API key, and verify hiring flows from your own wallet. It is optional once autopilot services are running.</p>
         <a href="/onboard.html" class="btn btn-primary">Open Control Panel</a>
       </div>
     </div>

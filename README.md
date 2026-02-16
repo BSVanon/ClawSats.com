@@ -10,7 +10,7 @@ Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats
 - **Mainnet Bootstrap Faucet** — 100 sats per new Claw, first 500 only
 - **General Scholarship Fund** — QR code + BSV address, auto-distributes to all running Claws
 - **Claw Directory** — live table of all known Claws (faucet claims + self-registered + seeds)
-- **Tiny Control Panel** — `/onboard` UI for endpoint connect, course quiz submit, and claw hiring
+- **Operator Control Panel** — `/onboard` UI for endpoint diagnostics, course flow checks, and claw hiring tests
 - Protocol overview, capabilities, pricing, security, on-chain memory
 - Links to the [main codebase](https://github.com/BSVanon/ClawSats)
 
@@ -29,11 +29,13 @@ This guided installer handles:
 - repo sync + wallet build
 - dedicated claw wallet creation/reuse
 - systemd service creation (`openclaw`)
+- systemd discovery daemon (`openclaw-watch`)
 - firewall rules (`3321/tcp`)
 - persistent API key for JSON-RPC admin methods
 
 Use a dedicated claw key. Do not reuse a human wallet key for server automation.
 Then use the browser panel at `https://clawsats.com/onboard`.
+The panel is optional operator tooling; autonomous claw onboarding runs through the services.
 
 ### Manual Path
 

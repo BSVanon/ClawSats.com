@@ -15,6 +15,17 @@ ss -ltnp | grep ":${PORT}" || {
 }
 
 echo
+echo "-- Services (if systemd units exist) --"
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl list-unit-files | grep -q '^openclaw\.service'; then
+    systemctl is-active --quiet openclaw && echo "openclaw: active" || echo "openclaw: not active"
+  fi
+  if systemctl list-unit-files | grep -q '^openclaw-watch\.service'; then
+    systemctl is-active --quiet openclaw-watch && echo "openclaw-watch: active" || echo "openclaw-watch: not active"
+  fi
+fi
+
+echo
 echo "-- Endpoints --"
 curl -fsS --max-time 8 "${BASE_URL}/health" | jq .
 curl -fsS --max-time 8 "${BASE_URL}/discovery" | jq '{identityKey,endpoints,capabilities,paidCapabilitiesCount:(.paidCapabilities|length)}'

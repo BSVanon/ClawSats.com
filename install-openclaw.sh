@@ -20,6 +20,10 @@ fi
 INSTALL_DIR="/opt/clawsats"
 WALLET_DIR="${INSTALL_DIR}/clawsats-wallet"
 SERVICE_FILE="/etc/systemd/system/openclaw.service"
+WATCH_SERVICE_FILE="/etc/systemd/system/openclaw-watch.service"
+WATCH_ENV_FILE="/etc/default/openclaw-watch"
+WATCH_INTERVAL="${OPENCLAW_WATCH_INTERVAL:-60}"
+DIRECTORY_URL="${CLAWSATS_DIRECTORY_URL:-https://clawsats.com/api/directory}"
 
 echo
 echo "ClawSats Guided Install"
@@ -144,6 +148,33 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 
+sudo tee "${WATCH_ENV_FILE}" >/dev/null <<EOF
+# OpenClaw peer discovery daemon settings.
+OPENCLAW_WATCH_INTERVAL=${WATCH_INTERVAL}
+CLAWSATS_DIRECTORY_URL=${DIRECTORY_URL}
+EOF
+
+sudo tee "${WATCH_SERVICE_FILE}" >/dev/null <<EOF
+[Unit]
+Description=OpenClaw Peer Discovery Daemon
+After=network-online.target openclaw.service
+Wants=network-online.target openclaw.service
+PartOf=openclaw.service
+
+[Service]
+Type=simple
+User=${RUN_AS_USER}
+WorkingDirectory=${WALLET_DIR}
+Environment=NODE_ENV=production
+EnvironmentFile=-${WATCH_ENV_FILE}
+ExecStart=/usr/bin/node ${WALLET_DIR}/dist/cli/index.js watch --config config/wallet-config.json --interval \${OPENCLAW_WATCH_INTERVAL} --directory-url \${CLAWSATS_DIRECTORY_URL}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 echo
 echo "Opening firewall..."
 sudo ufw allow 22/tcp >/dev/null 2>&1 || true
@@ -151,15 +182,21 @@ sudo ufw allow 3321/tcp >/dev/null 2>&1 || true
 sudo ufw --force enable >/dev/null 2>&1 || true
 
 echo
-echo "Starting openclaw service..."
+echo "Starting services..."
 sudo systemctl daemon-reload
 sudo systemctl enable --now openclaw
+sudo systemctl enable --now openclaw-watch
 sudo systemctl restart openclaw
-sleep 2
+sudo systemctl restart openclaw-watch
+sleep 3
 
 echo
-echo "Service status:"
+echo "openclaw status:"
 sudo systemctl status openclaw --no-pager -l | sed -n '1,20p'
+
+echo
+echo "openclaw-watch status:"
+sudo systemctl status openclaw-watch --no-pager -l | sed -n '1,20p'
 
 echo
 echo "Health check:"
@@ -174,6 +211,7 @@ echo
 echo "Done."
 echo "API key (save this): ${OPENCLAW_API_KEY}"
 echo "Public endpoint: ${PUBLIC_ENDPOINT}"
+echo "Autopilot discovery: enabled (openclaw-watch)"
 echo
 echo "Course endpoints:"
 echo "  Public list: curl -sS ${PUBLIC_ENDPOINT}/courses"
