@@ -45,11 +45,28 @@ expect_status() {
   fi
 }
 
+expect_any_status() {
+  local path="$1"
+  shift
+  local allowed=("$@")
+  local code
+  code="$(curl -sS -o /tmp/clawsats-smoke.json -w '%{http_code}' "http://127.0.0.1:${PORT}${path}")"
+  for ok in "${allowed[@]}"; do
+    if [[ "${code}" == "${ok}" ]]; then
+      return 0
+    fi
+  done
+  echo "Smoke test failed: ${path} expected one of [${allowed[*]}], got ${code}."
+  cat /tmp/clawsats-smoke.json || true
+  exit 1
+}
+
 expect_status "/api/faucet/status" "200"
 expect_status "/api/healthz" "200"
 expect_status "/api/directory" "200"
 expect_status "/api/network/seed-peers" "200"
 expect_status "/api/scholarships/status" "200"
-expect_status "/api/scholarships/address" "503"
+# Unfunded/missing wallet key can return 503; funded wallet should return 200 with address.
+expect_any_status "/api/scholarships/address" "200" "503"
 
 echo "Smoke test passed on port ${PORT}."
