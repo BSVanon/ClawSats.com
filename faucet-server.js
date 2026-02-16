@@ -1760,9 +1760,11 @@ app.post('/api/scholarships/distribute', async (req, res) => {
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/css', express.static(path.join(__dirname, 'css')));
 app.use('/js', express.static(path.join(__dirname, 'js')));
+app.use('/onboard', express.static(path.join(__dirname, 'onboard')));
 app.get('/favicon.svg', (req, res) => res.sendFile(path.join(__dirname, 'favicon.svg')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/onboard', (req, res) => res.sendFile(path.join(__dirname, 'onboard.html')));
+app.get('/onboard/', (req, res) => res.sendFile(path.join(__dirname, 'onboard', 'index.html')));
 app.get('/onboard.html', (req, res) => res.sendFile(path.join(__dirname, 'onboard.html')));
 
 app.get('*', (req, res) => {

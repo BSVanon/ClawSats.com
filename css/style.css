@@ -102,6 +102,7 @@ pre code { background: none; padding: 0; color: var(--text); }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: .8rem;
 }
 .nav-logo {
   display: inline-flex;
@@ -115,14 +116,58 @@ pre code { background: none; padding: 0; color: var(--text); }
   flex-shrink: 0;
 }
 .nav-logo-wordmark {
-  width: 176px;
+  width: 166px;
   max-width: 42vw;
   height: auto;
   display: block;
 }
-.nav-links { display: flex; align-items: center; gap: 1.5rem; }
-.nav-links a { color: var(--muted); font-size: .9rem; font-weight: 500; }
+.nav-links { display: flex; align-items: center; gap: .95rem; flex-wrap: wrap; justify-content: flex-end; }
+.nav-links a { color: var(--muted); font-size: .84rem; font-weight: 500; }
 .nav-links a:hover { color: var(--white); }
+.nav-menu-btn {
+  display: inline-flex;
+  width: 38px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(19,26,43,.9);
+  cursor: pointer;
+}
+.nav-menu-btn span {
+  display: block;
+  width: 16px;
+  height: 2px;
+  background: var(--text);
+}
+.nav-menu-panel {
+  display: none;
+  position: fixed;
+  top: 58px;
+  right: 1rem;
+  z-index: 101;
+  width: min(92vw, 320px);
+  background: rgba(10,14,23,.98);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .65rem;
+  box-shadow: 0 14px 36px rgba(0,0,0,.35);
+}
+.nav-menu-panel.open { display: block; }
+.nav-menu-panel a {
+  display: block;
+  color: var(--text);
+  padding: .55rem .65rem;
+  border-radius: 7px;
+  font-size: .9rem;
+}
+.nav-menu-panel a:hover {
+  background: rgba(230,57,70,.12);
+  color: var(--white);
+}
 
 /* ── Hero ── */
 
@@ -669,7 +714,7 @@ pre code { background: none; padding: 0; color: var(--text); }
 /* ── Responsive ── */
 
 @media (max-width: 768px) {
-  .nav-links a:not(.btn):not(.nav-social) { display: none; }
+  .nav-links { display: none; }
   .hero { padding: 6rem 0 3rem; }
   .hero-stats { gap: 1.5rem; }
   .scholarship-grid { grid-template-columns: 1fr; }

@@ -52,7 +52,7 @@
       <div class="nav-links">
         <a href="#how-it-works">How It Works</a>
         <a href="#capabilities">Services</a>
-        <a href="#control-panel">Control Panel</a>
+        <a href="/onboard.html">Control Panel</a>
         <a href="#scholarships">Scholarships</a>
         <a href="#faucet">Faucet</a>
         <a href="#directory">Directory</a>
@@ -61,6 +61,20 @@
         <a href="https://x.com/ClawSats" target="_blank" class="nav-social" title="@ClawSats on X"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
         <a href="#get-started" class="btn btn-sm">Get Started</a>
       </div>
+      <button class="nav-menu-btn" id="navMenuBtn" aria-label="Open navigation" aria-expanded="false" aria-controls="navMenuPanel">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+    <div class="nav-menu-panel" id="navMenuPanel">
+      <a href="#how-it-works">How It Works</a>
+      <a href="#capabilities">Services</a>
+      <a href="/onboard.html">Control Panel</a>
+      <a href="#scholarships">Scholarships</a>
+      <a href="#faucet">Faucet</a>
+      <a href="#directory">Directory</a>
+      <a href="#get-started">Deploy</a>
+      <a href="https://github.com/BSVanon/ClawSats" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://x.com/ClawSats" target="_blank" rel="noopener">@ClawSats</a>
     </div>
   </nav>
 
@@ -443,9 +457,9 @@ npx clawsats-wallet earn \
 
       <div class="easy-callout">
         <h3>Launch It</h3>
-        <pre><code>https://clawsats.com/onboard</code></pre>
+        <pre><code>https://clawsats.com/onboard.html</code></pre>
         <p>Step-by-step UI: connect endpoint, enter API key once, choose a course quiz, submit answers, and hire remote Claws from your own wallet.</p>
-        <a href="/onboard" class="btn btn-primary">Open Control Panel</a>
+        <a href="/onboard.html" class="btn btn-primary">Open Control Panel</a>
       </div>
     </div>
   </section>
@@ -821,6 +835,30 @@ bash clawsats-wallet/scripts/openclaw-api-key.sh</code></pre>
   }
 
   loadDirectory();
+
+  // ── Nav menu toggle ──
+  (function setupNavMenu() {
+    var btn = document.getElementById('navMenuBtn');
+    var panel = document.getElementById('navMenuPanel');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', function () {
+      var open = panel.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    panel.addEventListener('click', function (ev) {
+      var t = ev.target;
+      if (t && t.tagName === 'A') {
+        panel.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.addEventListener('click', function (ev) {
+      if (!panel.classList.contains('open')) return;
+      if (panel.contains(ev.target) || btn.contains(ev.target)) return;
+      panel.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  })();
 </script>
 </body>
 </html>
