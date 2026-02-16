@@ -50,6 +50,8 @@ const SEED_CLAW_ENDPOINT = process.env.SEED_CLAW_ENDPOINT || '';
 const WALLET_STORAGE_MODE = (process.env.FAUCET_WALLET_STORAGE || 'sqlite').toLowerCase();
 const WOC_API_BASE = process.env.WOC_API_BASE || 'https://api.whatsonchain.com/v1/bsv/main';
 const MIN_DRIP_SPENDABLE = parseInt(process.env.MIN_DRIP_SPENDABLE || '250', 10);
+const SCHOLARSHIP_TX_FEE_RESERVE = parseInt(process.env.SCHOLARSHIP_TX_FEE_RESERVE || '1000', 10);
+const DIRECT_SEND_FEE_BUFFER = parseInt(process.env.DIRECT_SEND_FEE_BUFFER || '1000', 10);
 const FAUCET_RESERVE_SLOTS = Number.isFinite(Number(process.env.FAUCET_RESERVE_SLOTS))
   ? Math.max(0, parseInt(process.env.FAUCET_RESERVE_SLOTS, 10))
   : null;
@@ -788,7 +790,7 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
   const tx = new Transaction();
   let inputTotal = 0;
   let selected = 0;
-  const targetFloor = satoshis + MIN_DRIP_SPENDABLE;
+  const targetFloor = satoshis + Math.max(1, DIRECT_SEND_FEE_BUFFER);
 
   for (const u of utxos) {
     tx.addInput(fromUtxo({
@@ -879,7 +881,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
   const reserveForFaucet = reserveSlots * MIN_DRIP_SPENDABLE;
   const eligible = getEligibleClaws();
-  const txFeeReserveTotal = eligible.length * MIN_DRIP_SPENDABLE;
+  const txFeeReserveTotal = eligible.length * Math.max(1, SCHOLARSHIP_TX_FEE_RESERVE);
   const budgetForOutputs = Math.max(0, balance - reserveForFaucet - txFeeReserveTotal);
 
   if (eligible.length === 0) {
@@ -916,6 +918,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   }
 
   const results = [];
+  const errors = [];
   let distributed = 0;
 
   for (const claw of eligible) {
@@ -929,8 +932,13 @@ app.post('/api/scholarships/distribute', async (req, res) => {
       txid = result.txid;
       status = result.status;
     } catch (err) {
-      console.warn(`[SCHOLARSHIP] Send failed for ${claw.identityKey.substring(0, 16)}...: ${err.message}`);
-      break; // Stop distributing if wallet errors (likely insufficient funds)
+      const msg = err && err.message ? err.message : String(err);
+      console.warn(`[SCHOLARSHIP] Send failed for ${claw.identityKey.substring(0, 16)}...: ${msg}`);
+      errors.push({
+        identityKey: claw.identityKey,
+        error: msg
+      });
+      break; // stop this batch on first hard wallet failure
     }
 
     const dist = {
@@ -950,12 +958,16 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   saveFund(fund);
 
   console.log(`[SCHOLARSHIP] Distributed ${distributed} sats across ${results.length} Claws (${perClaw} each)`);
+  if (errors.length > 0) {
+    console.warn(`[SCHOLARSHIP] Distribution halted with ${errors.length} error(s).`);
+  }
 
   res.json({
     distributed,
     perClaw,
     clawsReached: results.length,
     results,
+    errors,
     walletBalance: balance - distributed,
     message: `${distributed} sats distributed to ${results.length} Claws (${perClaw} sats each).`
   });
