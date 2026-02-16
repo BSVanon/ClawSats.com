@@ -48,6 +48,8 @@ const DB_PATH = process.env.FAUCET_CLAIMS_PATH || path.join(__dirname, 'faucet-c
 const FAUCET_ROOT_KEY_HEX = process.env.FAUCET_ROOT_KEY_HEX || '';
 const SEED_CLAW_ENDPOINT = process.env.SEED_CLAW_ENDPOINT || '';
 const WALLET_STORAGE_MODE = (process.env.FAUCET_WALLET_STORAGE || 'sqlite').toLowerCase();
+const WOC_API_BASE = process.env.WOC_API_BASE || 'https://api.whatsonchain.com/v1/bsv/main';
+const MIN_DRIP_SPENDABLE = parseInt(process.env.MIN_DRIP_SPENDABLE || '250', 10);
 
 // --- Wallet (lazy-initialized) ---
 let faucetWallet = null;
@@ -85,6 +87,21 @@ function formatErr(err) {
   if (err && err.stack) return err.stack;
   if (err && err.message) return err.message;
   return String(err);
+}
+
+async function fetchJson(url, options = {}) {
+  const resp = await fetch(url, {
+    ...options,
+    headers: {
+      'content-type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`${resp.status} ${resp.statusText}: ${body.slice(0, 220)}`);
+  }
+  return resp.json();
 }
 
 async function initWallet() {
@@ -274,23 +291,35 @@ function getPendingClaimEntries() {
 
 async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats faucet drip') {
   const lockingScript = p2pkhFromPubkey(identityKey);
-  const result = await faucetWallet.createAction({
-    description: `${descriptionPrefix} to ${identityKey.substring(0, 16)}...`,
-    outputs: [{
-      satoshis: DRIP_AMOUNT,
-      lockingScript,
-      outputDescription: 'faucet drip',
-      tags: ['clawsats-faucet'],
-      basket: 'clawsats-faucet-drips'
-    }],
-    labels: ['clawsats-faucet'],
-    options: {
-      acceptDelayedBroadcast: false
+  try {
+    const result = await faucetWallet.createAction({
+      description: `${descriptionPrefix} to ${identityKey.substring(0, 16)}...`,
+      outputs: [{
+        satoshis: DRIP_AMOUNT,
+        lockingScript,
+        outputDescription: 'faucet drip',
+        tags: ['clawsats-faucet'],
+        basket: 'clawsats-faucet-drips'
+      }],
+      labels: ['clawsats-faucet'],
+      options: {
+        acceptDelayedBroadcast: false
+      }
+    });
+    const txid = result.txid || null;
+    const status = txid ? 'sent' : 'pending_broadcast';
+    return { txid, status };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (walletBackend === 'memory' && (
+      msg.toLowerCase().includes('insufficient funds') ||
+      msg.toLowerCase().includes('needed')
+    )) {
+      console.warn('[FAUCET] createAction could not see spendable inputs in memory mode; trying direct P2PKH fallback path.');
+      return sendViaDirectP2PKHFallback(identityKey, DRIP_AMOUNT);
     }
-  });
-  const txid = result.txid || null;
-  const status = txid ? 'sent' : 'pending_broadcast';
-  return { txid, status };
+    throw err;
+  }
 }
 
 async function settlePendingClaims(maxClaims = 50) {
@@ -299,6 +328,11 @@ async function settlePendingClaims(maxClaims = 50) {
 
   settlingPendingClaims = true;
   try {
+    const available = await getWalletBalance();
+    if (available < MIN_DRIP_SPENDABLE) {
+      return { processed: 0, sent: 0, failed: 0, remaining: getPendingClaimEntries().length };
+    }
+
     const pending = getPendingClaimEntries();
     if (pending.length === 0) return { processed: 0, sent: 0, failed: 0, remaining: 0 };
 
@@ -358,7 +392,7 @@ function checkRateLimit(ip) {
 // Faucet status
 app.get('/api/faucet/status', async (req, res) => {
   const balance = await getWalletBalance();
-  const reserveForNextDrip = DRIP_AMOUNT + 1;
+  const reserveForNextDrip = MIN_DRIP_SPENDABLE;
   const funded = walletReady && balance >= reserveForNextDrip;
   const pendingClaims = getPendingClaimEntries().length;
 
@@ -639,6 +673,21 @@ let fund = loadFund();
  */
 async function getWalletBalance() {
   if (!walletReady || !faucetWallet) return 0;
+
+  // In memory mode, toolbox output tracking may not include direct P2PKH external funding.
+  // Use chain index balance for the known faucet address to reflect real on-chain funds.
+  if (walletBackend === 'memory' && faucetAddress) {
+    try {
+      const data = await fetchJson(`${WOC_API_BASE}/address/${faucetAddress}/balance`);
+      const confirmed = Number(data.confirmed || 0);
+      const unconfirmed = Number(data.unconfirmed || 0);
+      return Math.max(0, confirmed + unconfirmed);
+    } catch (err) {
+      console.warn(`[SCHOLARSHIP] WOC balance check failed: ${err.message}`);
+      // Fall through to toolbox listOutputs path below
+    }
+  }
+
   try {
     const outputs = await faucetWallet.listOutputs({
       basket: 'default',
@@ -661,6 +710,79 @@ async function getWalletBalance() {
     console.warn(`[SCHOLARSHIP] Balance check failed: ${err.message}`);
     return 0;
   }
+}
+
+async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
+  if (!FAUCET_ROOT_KEY_HEX || !faucetAddress) {
+    throw new Error('Direct P2PKH fallback unavailable: missing faucet key/address.');
+  }
+
+  const { PrivateKey, P2PKH, fromUtxo, Transaction, Script, SatoshisPerKilobyte } = require('@bsv/sdk');
+  const { Setup } = require('@bsv/wallet-toolbox');
+
+  const priv = PrivateKey.fromHex(FAUCET_ROOT_KEY_HEX);
+  const unlock = new P2PKH().unlock(priv);
+  const sourceScriptHex = Setup.getLockP2PKH(faucetAddress).toHex();
+  const recipientScriptHex = p2pkhFromPubkey(recipientIdentityKey);
+
+  const rawUtxos = await fetchJson(`${WOC_API_BASE}/address/${faucetAddress}/unspent`);
+  const utxos = (Array.isArray(rawUtxos) ? rawUtxos : [])
+    .map(u => ({
+      txid: u.tx_hash || u.tx_hash_big_endian || u.txid,
+      vout: u.tx_pos ?? u.vout ?? u.tx_output_n,
+      satoshis: Number(u.value ?? u.satoshis ?? 0)
+    }))
+    .filter(u => typeof u.txid === 'string' && Number.isInteger(u.vout) && u.satoshis > 0)
+    .sort((a, b) => b.satoshis - a.satoshis);
+
+  if (utxos.length === 0) {
+    throw new Error('No spendable UTXOs found for faucet address.');
+  }
+
+  // Build a candidate tx with selected UTXOs until fee+output are covered.
+  const tx = new Transaction();
+  let inputTotal = 0;
+  let selected = 0;
+  const targetFloor = satoshis + MIN_DRIP_SPENDABLE;
+
+  for (const u of utxos) {
+    tx.addInput(fromUtxo({
+      txid: u.txid,
+      vout: u.vout,
+      satoshis: u.satoshis,
+      script: sourceScriptHex
+    }, unlock));
+    inputTotal += u.satoshis;
+    selected++;
+    if (inputTotal >= targetFloor) break;
+  }
+
+  if (inputTotal < targetFloor) {
+    throw new Error(`Insufficient UTXO total: need at least ${targetFloor}, found ${inputTotal}.`);
+  }
+
+  tx.addOutput({
+    satoshis,
+    lockingScript: Script.fromHex(recipientScriptHex)
+  });
+  tx.addP2PKHOutput(faucetAddress); // change output
+
+  await tx.fee(new SatoshisPerKilobyte(1000));
+  await tx.sign();
+
+  const txhex = tx.toHex();
+  const br = await fetchJson(`${WOC_API_BASE}/tx/raw`, {
+    method: 'POST',
+    body: JSON.stringify({ txhex })
+  });
+
+  const txid = br.txid || br || null;
+  if (!txid || typeof txid !== 'string') {
+    throw new Error(`Broadcast response missing txid: ${JSON.stringify(br).slice(0, 240)}`);
+  }
+
+  console.log(`[FAUCET] Direct P2PKH fallback broadcast txid=${txid.substring(0, 16)}... inputs=${selected} totalIn=${inputTotal}`);
+  return { txid, status: 'sent' };
 }
 
 // GET /api/scholarships/address — the BSV address to send scholarship donations to
