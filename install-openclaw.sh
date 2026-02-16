@@ -22,7 +22,7 @@ WALLET_DIR="${INSTALL_DIR}/clawsats-wallet"
 SERVICE_FILE="/etc/systemd/system/openclaw.service"
 
 echo
-echo "ClawSats Normie Install"
+echo "ClawSats Guided Install"
 echo "This sets up a live OpenClaw on port 3321."
 echo "It will create or reuse a dedicated claw wallet key."
 echo

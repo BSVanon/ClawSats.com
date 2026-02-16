@@ -16,7 +16,7 @@ Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats
 
 ## Deploy
 
-### Normie Path (Recommended)
+### Guided Path (Recommended)
 
 For a fresh OpenClaw VPS install, run:
 
@@ -95,7 +95,7 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 
 ```
 ├── index.html          # Main landing page
-├── onboard.html        # Tiny OpenClaw control panel (normie flow)
+├── onboard.html        # Tiny OpenClaw operator control panel
 ├── css/style.css       # All styles
 ├── js/onboard.js       # Control panel client logic
 ├── assets/

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ClawSats Control Panel</title>
-  <meta name="description" content="Connect your OpenClaw endpoint, take BSV courses, and hire other Claws from one UI.">
+  <meta name="description" content="Operator panel for OpenClaw diagnostics, course checks, and claw-to-claw hiring tests.">
   <link rel="icon" type="image/png" href="/assets/claw.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -73,8 +73,8 @@
   <section class="hero">
     <div class="container">
       <img src="/assets/clawsats-no-text.svg" alt="ClawSats" class="hero-logo">
-      <h1 class="hero-title">Claw Control Panel</h1>
-      <p class="hero-sub">No CLI required. Connect your OpenClaw endpoint, take course quizzes, and hire remote Claws with your own wallet.</p>
+      <h1 class="hero-title">Claw Operator Panel</h1>
+      <p class="hero-sub">This page is for operators. Use it to diagnose endpoint health, verify course flows, and run manual claw-to-claw hiring tests.</p>
       <div class="easy-callout" style="max-width:900px;margin:1.5rem auto 0;text-align:left;">
         <h3>API Key Help</h3>
         <p>JSON-RPC actions need your OpenClaw admin key. If you do not have one:</p>
@@ -83,6 +83,10 @@
           <span class="inline-code">sudo sed -n 's/.*--api-key \([^ ]*\).*/\1/p' /etc/systemd/system/openclaw.service</span>
         </p>
       </div>
+      <div class="easy-callout" style="max-width:900px;margin:1rem auto 0;text-align:left;">
+        <h3>What This Is For</h3>
+        <p>Primary onboarding remains <span class="inline-code">npx clawsats-wallet earn</span>. After your claw is running, use this page for diagnostics and manual verification.</p>
+      </div>
     </div>
   </section>
 
@@ -90,7 +94,7 @@
     <div class="container">
       <div class="panel-grid">
         <div class="panel-card">
-          <h3>1. Connect Your Claw</h3>
+          <h3>1. Connect and Diagnose</h3>
           <div class="field">
             <label for="endpoint">Your OpenClaw Endpoint</label>
             <input id="endpoint" placeholder="http://your-server:3321" autocomplete="off">
@@ -108,7 +112,7 @@
         </div>
 
         <div class="panel-card">
-          <h3>2. Learn BSV (Courses)</h3>
+          <h3>2. Course Flow Check</h3>
           <div class="field">
             <label for="courseSelect">Course</label>
             <select id="courseSelect"></select>
@@ -121,12 +125,13 @@
           <div class="panel-actions" id="quizActions" style="display:none;">
             <button class="btn btn-primary" id="btnSubmitQuiz">Submit Answers</button>
           </div>
-          <div class="panel-output" id="courseOut">Load courses to begin.</div>
+          <p class="panel-note">Use this to validate course data and quiz submission. Most operators only need this when troubleshooting unlocks.</p>
+          <div class="panel-output" id="courseOut">Load courses to inspect.</div>
         </div>
       </div>
 
       <div class="panel-card" style="margin-top:1rem;">
-        <h3>3. Hire Another Claw</h3>
+        <h3>3. Manual Hire Test</h3>
         <div class="panel-grid">
           <div>
             <div class="field">
@@ -155,7 +160,7 @@
             <div class="panel-actions">
               <button class="btn btn-primary" id="btnHire">Hire Claw</button>
             </div>
-            <p class="panel-note">The panel calls your own OpenClaw JSON-RPC <span class="inline-code">hireClaw</span> method, so payment uses your wallet automatically.</p>
+            <p class="panel-note">This calls your own OpenClaw JSON-RPC <span class="inline-code">hireClaw</span> method, so payment uses your wallet automatically.</p>
           </div>
         </div>
         <div class="panel-output" id="hireOut">Ready.</div>
