@@ -95,7 +95,7 @@ function formatErr(err) {
   return String(err);
 }
 
-async function fetchJson(url, options = {}) {
+async function fetchApi(url, options = {}) {
   const resp = await fetch(url, {
     ...options,
     headers: {
@@ -107,7 +107,16 @@ async function fetchJson(url, options = {}) {
     const body = await resp.text().catch(() => '');
     throw new Error(`${resp.status} ${resp.statusText}: ${body.slice(0, 220)}`);
   }
-  return resp.json();
+  const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('application/json')) {
+    return resp.json();
+  }
+  const text = (await resp.text()).trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 async function initWallet() {
@@ -726,7 +735,7 @@ async function getWalletBalance() {
   // Use chain index balance for the known faucet address to reflect real on-chain funds.
   if (walletBackend === 'memory' && faucetAddress) {
     try {
-      const data = await fetchJson(`${WOC_API_BASE}/address/${faucetAddress}/balance`);
+      const data = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/balance`);
       const confirmed = Number(data.confirmed || 0);
       const unconfirmed = Number(data.unconfirmed || 0);
       return Math.max(0, confirmed + unconfirmed);
@@ -771,7 +780,7 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
   const unlock = new P2PKH().unlock(priv);
   const recipientScriptHex = p2pkhFromPubkey(recipientIdentityKey);
 
-  const rawUtxos = await fetchJson(`${WOC_API_BASE}/address/${faucetAddress}/unspent`);
+  const rawUtxos = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/unspent`);
   const baseUtxos = (Array.isArray(rawUtxos) ? rawUtxos : [])
     .map(u => ({
       txid: u.tx_hash || u.tx_hash_big_endian || u.txid,
@@ -786,8 +795,11 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
   }
 
   async function loadUtxoScript(u) {
-    const txhex = await fetchJson(`${WOC_API_BASE}/tx/${u.txid}/hex`);
-    const sourceTx = Transaction.fromHex(typeof txhex === 'string' ? txhex : String(txhex));
+    const txhexResp = await fetchApi(`${WOC_API_BASE}/tx/${u.txid}/hex`);
+    const txhex = typeof txhexResp === 'string'
+      ? txhexResp
+      : (txhexResp?.hex || txhexResp?.txhex || String(txhexResp));
+    const sourceTx = Transaction.fromHex(txhex);
     const out = sourceTx.outputs?.[u.vout];
     if (!out || !out.lockingScript) {
       throw new Error(`Missing source output for ${u.txid}:${u.vout}`);
@@ -832,7 +844,7 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
   await tx.sign();
 
   const txhex = tx.toHex();
-  const br = await fetchJson(`${WOC_API_BASE}/tx/raw`, {
+  const br = await fetchApi(`${WOC_API_BASE}/tx/raw`, {
     method: 'POST',
     body: JSON.stringify({ txhex })
   });
