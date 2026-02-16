@@ -52,6 +52,7 @@ const WOC_API_BASE = process.env.WOC_API_BASE || 'https://api.whatsonchain.com/v
 const MIN_DRIP_SPENDABLE = parseInt(process.env.MIN_DRIP_SPENDABLE || '250', 10);
 const SCHOLARSHIP_TX_FEE_RESERVE = parseInt(process.env.SCHOLARSHIP_TX_FEE_RESERVE || '1000', 10);
 const DIRECT_SEND_FEE_BUFFER = parseInt(process.env.DIRECT_SEND_FEE_BUFFER || '1000', 10);
+const FAUCET_MIN_RESERVE_SATS = parseInt(process.env.FAUCET_MIN_RESERVE_SATS || '50000', 10);
 const FAUCET_RESERVE_SLOTS = Number.isFinite(Number(process.env.FAUCET_RESERVE_SLOTS))
   ? Math.max(0, parseInt(process.env.FAUCET_RESERVE_SLOTS, 10))
   : null;
@@ -765,15 +766,13 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
   }
 
   const { PrivateKey, P2PKH, fromUtxo, Transaction, Script, SatoshisPerKilobyte } = require('@bsv/sdk');
-  const { Setup } = require('@bsv/wallet-toolbox');
 
   const priv = PrivateKey.fromHex(FAUCET_ROOT_KEY_HEX);
   const unlock = new P2PKH().unlock(priv);
-  const sourceScriptHex = Setup.getLockP2PKH(faucetAddress).toHex();
   const recipientScriptHex = p2pkhFromPubkey(recipientIdentityKey);
 
   const rawUtxos = await fetchJson(`${WOC_API_BASE}/address/${faucetAddress}/unspent`);
-  const utxos = (Array.isArray(rawUtxos) ? rawUtxos : [])
+  const baseUtxos = (Array.isArray(rawUtxos) ? rawUtxos : [])
     .map(u => ({
       txid: u.tx_hash || u.tx_hash_big_endian || u.txid,
       vout: u.tx_pos ?? u.vout ?? u.tx_output_n,
@@ -782,8 +781,22 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
     .filter(u => typeof u.txid === 'string' && Number.isInteger(u.vout) && u.satoshis > 0)
     .sort((a, b) => b.satoshis - a.satoshis);
 
-  if (utxos.length === 0) {
+  if (baseUtxos.length === 0) {
     throw new Error('No spendable UTXOs found for faucet address.');
+  }
+
+  async function loadUtxoScript(u) {
+    const txhex = await fetchJson(`${WOC_API_BASE}/tx/${u.txid}/hex`);
+    const sourceTx = Transaction.fromHex(typeof txhex === 'string' ? txhex : String(txhex));
+    const out = sourceTx.outputs?.[u.vout];
+    if (!out || !out.lockingScript) {
+      throw new Error(`Missing source output for ${u.txid}:${u.vout}`);
+    }
+    return {
+      ...u,
+      satoshis: Number(out.satoshis || u.satoshis || 0),
+      script: out.lockingScript.toHex()
+    };
   }
 
   // Build a candidate tx with selected UTXOs until fee+output are covered.
@@ -792,12 +805,13 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis) {
   let selected = 0;
   const targetFloor = satoshis + Math.max(1, DIRECT_SEND_FEE_BUFFER);
 
-  for (const u of utxos) {
+  for (const base of baseUtxos) {
+    const u = await loadUtxoScript(base);
     tx.addInput(fromUtxo({
       txid: u.txid,
       vout: u.vout,
       satoshis: u.satoshis,
-      script: sourceScriptHex
+      script: u.script
     }, unlock));
     inputTotal += u.satoshis;
     selected++;
@@ -879,7 +893,8 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   // Reserving all future 499 potential claims blocks scholarship distribution.
   const pendingClaims = getPendingClaimEntries().length;
   const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
-  const reserveForFaucet = reserveSlots * MIN_DRIP_SPENDABLE;
+  const reserveFromSlots = reserveSlots * MIN_DRIP_SPENDABLE;
+  const reserveForFaucet = Math.max(FAUCET_MIN_RESERVE_SATS, reserveFromSlots);
   const eligible = getEligibleClaws();
   const txFeeReserveTotal = eligible.length * Math.max(1, SCHOLARSHIP_TX_FEE_RESERVE);
   const budgetForOutputs = Math.max(0, balance - reserveForFaucet - txFeeReserveTotal);
@@ -890,6 +905,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
       message: 'No eligible Claws found yet.',
       walletBalance: balance,
       reservedForFaucet: reserveForFaucet,
+      faucetMinReserve: FAUCET_MIN_RESERVE_SATS,
       reserveSlots,
       pendingClaims
     });
@@ -900,6 +916,7 @@ app.post('/api/scholarships/distribute', async (req, res) => {
       distributed: 0,
       walletBalance: balance,
       reservedForFaucet: reserveForFaucet,
+      faucetMinReserve: FAUCET_MIN_RESERVE_SATS,
       reservedForScholarshipFees: txFeeReserveTotal,
       reserveSlots,
       pendingClaims,
