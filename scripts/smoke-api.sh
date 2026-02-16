@@ -66,6 +66,7 @@ expect_status "/api/healthz" "200"
 expect_status "/api/directory" "200"
 expect_status "/api/network/seed-peers" "200"
 expect_status "/api/scholarships/status" "200"
+expect_status "/onboard" "200"
 # Unfunded/missing wallet key can return 503; funded wallet should return 200 with address.
 expect_any_status "/api/scholarships/address" "200" "503"
 

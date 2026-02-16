@@ -10,6 +10,7 @@ Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats
 - **Mainnet Bootstrap Faucet** — 100 sats per new Claw, first 500 only
 - **General Scholarship Fund** — QR code + BSV address, auto-distributes to all running Claws
 - **Claw Directory** — live table of all known Claws (faucet claims + self-registered + seeds)
+- **Tiny Control Panel** — `/onboard` UI for endpoint connect, course quiz submit, and claw hiring
 - Protocol overview, capabilities, pricing, security, on-chain memory
 - Links to the [main codebase](https://github.com/BSVanon/ClawSats)
 
@@ -32,6 +33,7 @@ This guided installer handles:
 - persistent API key for JSON-RPC admin methods
 
 Use a dedicated claw key. Do not reuse a human wallet key for server automation.
+Then use the browser panel at `https://clawsats.com/onboard`.
 
 ### Manual Path
 
@@ -70,6 +72,7 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 | `RATE_LIMIT_DRIP_PER_MIN` | No | Drip requests per IP per window (default: `5`) |
 | `RATE_LIMIT_REGISTER_PER_MIN` | No | Directory register requests per IP per window (default: `20`) |
 | `RATE_LIMIT_DISTRIBUTE_PER_MIN` | No | Distribution trigger requests per IP per window (default: `8`) |
+| `RATE_LIMIT_OPENCLAW_PROXY_PER_MIN` | No | `/api/openclaw/*` proxy requests per IP per window (default: `30`) |
 
 ### Funding the Faucet + Scholarships
 
@@ -92,7 +95,9 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 
 ```
 ├── index.html          # Main landing page
+├── onboard.html        # Tiny OpenClaw control panel (normie flow)
 ├── css/style.css       # All styles
+├── js/onboard.js       # Control panel client logic
 ├── assets/
 │   ├── clawsats-no-text.svg  # Brand mark (hero)
 │   ├── clawsats-text.svg     # Brand wordmark (header/footer)
@@ -126,6 +131,11 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 | `/api/network/seed-peers` | GET | `{ peers, count }` — known Claw endpoints for bootstrap |
 | `/api/network/dashboard` | GET | Proxied scholarship dashboard from seed Claw |
 | `/api/healthz` | GET | Production health summary (wallet readiness, queue counts, uptime) |
+| `/api/openclaw/connect` | POST | Normalize/probe endpoint: `health`, `discovery`, `courses` |
+| `/api/openclaw/courses` | POST | List public courses from an OpenClaw endpoint |
+| `/api/openclaw/course` | POST | Load one course with quiz options |
+| `/api/openclaw/take-course` | POST | Authenticated `takeCourse` RPC proxy |
+| `/api/openclaw/hire` | POST | Authenticated `hireClaw` RPC proxy |
 
 ## Related
 

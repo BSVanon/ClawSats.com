@@ -49,7 +49,7 @@ sudo apt install -y git curl ca-certificates ufw
 
 echo
 echo "Ensuring Node.js 20..."
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'parseInt(process.versions.node.split(\".\")[0],10)')" -lt 20 ]]; then
+if ! command -v node >/dev/null 2>&1 || [[ "$(node -p 'parseInt(process.versions.node.split(".")[0],10)')" -lt 20 ]]; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   sudo apt install -y nodejs
 fi

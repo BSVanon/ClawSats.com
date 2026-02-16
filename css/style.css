@@ -19,7 +19,7 @@
 html { scroll-behavior: smooth; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.65;
@@ -35,7 +35,7 @@ code {
   padding: 2px 6px;
   border-radius: 4px;
   font-size: .9em;
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }
 
 pre {
@@ -106,9 +106,16 @@ pre code { background: none; padding: 0; color: var(--text); }
 .nav-logo {
   display: inline-flex;
   align-items: center;
+  gap: .55rem;
+}
+.nav-logo-mark {
+  width: 30px;
+  height: 30px;
+  display: block;
+  flex-shrink: 0;
 }
 .nav-logo-wordmark {
-  width: 170px;
+  width: 176px;
   max-width: 42vw;
   height: auto;
   display: block;
@@ -161,7 +168,7 @@ pre code { background: none; padding: 0; color: var(--text); }
 /* ── Hero Logo ── */
 
 .hero-logo {
-  width: 198px;
+  width: 218px;
   height: auto;
   margin: 0 auto 2rem;
   display: block;
@@ -308,7 +315,7 @@ pre code { background: none; padding: 0; color: var(--text); }
 
 /* ── Why ClawSats Box ── */
 
-.tldr-box {
+.why-box {
   background: var(--surface);
   border: 1px solid var(--accent);
   border-radius: var(--radius);
@@ -316,15 +323,15 @@ pre code { background: none; padding: 0; color: var(--text); }
   max-width: 700px;
   margin: 0 auto;
 }
-.tldr-box h2 {
+.why-box h2 {
   color: var(--accent);
   font-size: .85rem;
   text-transform: uppercase;
   letter-spacing: .06em;
   margin-bottom: .5rem;
 }
-.tldr-box p { font-size: 1.05rem; }
-.tldr-box strong { color: var(--accent); }
+.why-box p { font-size: 1.05rem; }
+.why-box strong { color: var(--accent); }
 
 /* ── Flow Grid ── */
 
@@ -487,11 +494,17 @@ pre code { background: none; padding: 0; color: var(--text); }
   color: var(--muted);
   font-size: .92rem;
 }
+.easy-callout pre {
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .start-step h3 { font-size: 1.1rem; margin-bottom: .75rem; color: var(--accent); }
 .start-step p { color: var(--muted); font-size: .9rem; margin-top: .75rem; }
 .start-step pre {
-  overflow-x: visible;
+  overflow-x: hidden;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 .start-step pre code {
@@ -667,7 +680,8 @@ pre code { background: none; padding: 0; color: var(--text); }
   .footer-grid { grid-template-columns: 1fr; gap: 1.5rem; }
   .flow-diagram pre { font-size: .72rem; }
   .faucet-input-row { flex-direction: column; }
-  .hero-logo { width: 154px; }
+  .hero-logo { width: 172px; }
+  .nav-logo-mark { width: 24px; height: 24px; }
   .nav-logo-wordmark { width: 146px; }
   .start-step pre { font-size: .82rem; }
 }
