@@ -43,14 +43,48 @@ app.use(express.json({ limit: '16kb' }));
 const DRIP_AMOUNT = 100;
 const MAX_CLAIMS = 500;
 const PORT = parseInt(process.env.FAUCET_PORT || '3322', 10);
-const DB_PATH = path.join(__dirname, 'faucet-claims.json');
+const BIND_HOST = process.env.FAUCET_BIND_HOST || '127.0.0.1';
+const DB_PATH = process.env.FAUCET_CLAIMS_PATH || path.join(__dirname, 'faucet-claims.json');
 const FAUCET_ROOT_KEY_HEX = process.env.FAUCET_ROOT_KEY_HEX || '';
 const SEED_CLAW_ENDPOINT = process.env.SEED_CLAW_ENDPOINT || '';
+const WALLET_STORAGE_MODE = (process.env.FAUCET_WALLET_STORAGE || 'sqlite').toLowerCase();
 
 // --- Wallet (lazy-initialized) ---
 let faucetWallet = null;
 let walletReady = false;
 let walletError = null;
+let walletBackend = 'none';
+
+function getPkgVersion(name) {
+  try {
+    const mainPath = require.resolve(name);
+    let dir = path.dirname(mainPath);
+    for (let i = 0; i < 6; i++) {
+      const pkgPath = path.join(dir, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg && pkg.name === name) return pkg.version || 'unknown';
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function logWalletRuntimeDetails() {
+  console.log(`[FAUCET] Runtime: node=${process.version} sdk=${getPkgVersion('@bsv/sdk')} wallet-toolbox=${getPkgVersion('@bsv/wallet-toolbox')}`);
+  console.log(`[FAUCET] Config: storage=${WALLET_STORAGE_MODE} claimsPath=${DB_PATH}`);
+}
+
+function formatErr(err) {
+  if (err && err.stack) return err.stack;
+  if (err && err.message) return err.message;
+  return String(err);
+}
 
 async function initWallet() {
   if (!FAUCET_ROOT_KEY_HEX || FAUCET_ROOT_KEY_HEX.length !== 64) {
@@ -64,8 +98,18 @@ async function initWallet() {
     const { Setup } = require('@bsv/wallet-toolbox');
     const { PrivateKey } = require('@bsv/sdk');
 
+    logWalletRuntimeDetails();
+
     const rootKey = PrivateKey.fromHex(FAUCET_ROOT_KEY_HEX);
     const identityKey = rootKey.toPublicKey().toString();
+    const address = pubkeyToAddress(identityKey);
+
+    faucetIdentityKey = identityKey;
+    faucetAddress = address;
+
+    console.log(`[FAUCET] Derived identity key: ${identityKey}`);
+    console.log(`[FAUCET] Derived address: ${address}`);
+    console.log(`[FAUCET] Fund this mainnet address for faucet + scholarships.`);
 
     const dataDir = path.join(__dirname, 'faucet-data');
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -80,23 +124,53 @@ async function initWallet() {
       mySQLConnection: '{}'
     };
 
-    const sw = await Setup.createWalletSQLite({
-      env,
-      rootKeyHex: FAUCET_ROOT_KEY_HEX,
-      filePath: path.join(dataDir, 'faucet.sqlite'),
-      databaseName: 'clawsats-faucet'
-    });
+    if (WALLET_STORAGE_MODE === 'sqlite') {
+      try {
+        console.log('[FAUCET] Wallet init: Setup.createWalletSQLite(env, rootKeyHex, filePath, databaseName)');
+        const sw = await Setup.createWalletSQLite({
+          env,
+          rootKeyHex: FAUCET_ROOT_KEY_HEX,
+          filePath: path.join(dataDir, 'faucet.sqlite'),
+          databaseName: 'clawsats-faucet'
+        });
+        faucetWallet = sw.wallet;
+        walletBackend = 'sqlite';
+      } catch (sqliteErr) {
+        const sqliteMsg = sqliteErr && sqliteErr.message ? sqliteErr.message : String(sqliteErr);
+        console.error(`[FAUCET] SQLite wallet init failed: ${sqliteMsg}`);
+        console.error(formatErr(sqliteErr));
 
-    faucetWallet = sw.wallet;
+        if (sqliteMsg.includes('Function not implemented')) {
+          console.warn('[FAUCET] SQLite init is unavailable in this @bsv/wallet-toolbox build. Falling back to memory wallet mode.');
+        } else {
+          console.warn('[FAUCET] Falling back to memory wallet mode after SQLite init failure.');
+        }
+
+        console.log('[FAUCET] Wallet init fallback: Setup.createWalletClientNoEnv(chain, rootKeyHex)');
+        faucetWallet = await Setup.createWalletClientNoEnv({
+          chain: 'main',
+          rootKeyHex: FAUCET_ROOT_KEY_HEX
+        });
+        walletBackend = 'memory';
+      }
+    } else {
+      console.log('[FAUCET] Wallet init: Setup.createWalletClientNoEnv(chain, rootKeyHex)');
+      faucetWallet = await Setup.createWalletClientNoEnv({
+        chain: 'main',
+        rootKeyHex: FAUCET_ROOT_KEY_HEX
+      });
+      walletBackend = 'memory';
+    }
+
     walletReady = true;
-    faucetIdentityKey = identityKey;
-    faucetAddress = pubkeyToAddress(identityKey);
-    console.log(`[FAUCET] ✅ Wallet initialized: ${identityKey.substring(0, 24)}...`);
-    console.log(`[FAUCET]    BSV Address: ${faucetAddress}`);
+    console.log(`[FAUCET] ✅ Wallet initialized (${walletBackend}) for ${identityKey.substring(0, 24)}...`);
+    console.log(`[FAUCET]    BSV Address: ${address}`);
     console.log(`[FAUCET]    Fund this address with mainnet BSV to enable drips + scholarships.`);
   } catch (err) {
-    walletError = err.message || String(err);
+    walletError = err && err.message ? err.message : String(err);
+    walletBackend = 'none';
     console.error(`[FAUCET] ❌ Wallet init failed: ${walletError}`);
+    console.error(formatErr(err));
     console.warn('[FAUCET]    Faucet will record claims but cannot send sats.');
   }
 }
@@ -202,14 +276,23 @@ function checkRateLimit(ip) {
 // --- Routes ---
 
 // Faucet status
-app.get('/api/faucet/status', (req, res) => {
+app.get('/api/faucet/status', async (req, res) => {
+  const balance = await getWalletBalance();
+  const reserveForNextDrip = DRIP_AMOUNT + 1;
+  const funded = walletReady && balance >= reserveForNextDrip;
+
   res.json({
     claimed: db.count,
     limit: MAX_CLAIMS,
     remaining: MAX_CLAIMS - db.count,
     dripAmount: DRIP_AMOUNT,
     chain: 'main',
-    funded: walletReady
+    funded,
+    walletReady,
+    walletBackend,
+    walletBalance: balance,
+    reserveForNextDrip,
+    walletError: walletError || null
   });
 });
 
@@ -675,11 +758,11 @@ app.get('*', (req, res) => {
 async function main() {
   await initWallet();
 
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, BIND_HOST, () => {
     console.log(`\n🦞 ClawSats Faucet + Website (mainnet)`);
-    console.log(`   http://0.0.0.0:${PORT}`);
+    console.log(`   http://${BIND_HOST}:${PORT}`);
     console.log(`   Faucet: ${db.count}/${MAX_CLAIMS} claimed, ${DRIP_AMOUNT} sats/drip`);
-    console.log(`   Wallet: ${walletReady ? '✅ funded' : '⚠️  not funded (claims recorded, sats pending)'}`);
+    console.log(`   Wallet: ${walletReady ? `✅ ready (${walletBackend})` : '⚠️  not ready (claims recorded, sats pending)'}`);
     if (SEED_CLAW_ENDPOINT) console.log(`   Seed Claw: ${SEED_CLAW_ENDPOINT}`);
     console.log(`   Status: GET /api/faucet/status`);
     console.log(`   Drip:   POST /api/faucet/drip { identityKey }`);

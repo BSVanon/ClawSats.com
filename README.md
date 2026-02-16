@@ -35,6 +35,9 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 |----------|----------|-------------|
 | `FAUCET_ROOT_KEY_HEX` | Yes (for live drips + scholarships) | 64-char hex private key for faucet wallet |
 | `FAUCET_PORT` | No | Server port (default: 3322) |
+| `FAUCET_BIND_HOST` | No | Bind host (default: `127.0.0.1`, recommended behind nginx) |
+| `FAUCET_CLAIMS_PATH` | No | JSON path for persisted claims (default: `./faucet-claims.json`) |
+| `FAUCET_WALLET_STORAGE` | No | `sqlite` (default) or `memory` |
 | `SEED_CLAW_ENDPOINT` | No | URL of a running Claw for scholarship dashboard proxy |
 
 ### Funding the Faucet + Scholarships
@@ -51,6 +54,8 @@ enough balance for remaining faucet slots before distributing scholarship funds.
 For static-only hosting (no faucet), serve the root directory with any web server.
 
 If only `/api/faucet/status` works and the other `/api/*` routes return 404, you're likely running a legacy faucet server build. Deploy this repository's current `faucet-server.js` and re-run `npm run smoke`.
+
+If logs show `Function not implemented.` during SQLite wallet setup, this server now falls back automatically to memory wallet mode and logs the derived identity key/address plus full stack trace for diagnosis.
 
 ## Structure
 

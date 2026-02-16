@@ -50,6 +50,15 @@ export FAUCET_ROOT_KEY_HEX=<your-64-char-hex-key>
 # Optional — port (default 3322)
 export FAUCET_PORT=3322
 
+# Optional — bind host (default 127.0.0.1)
+export FAUCET_BIND_HOST=127.0.0.1
+
+# Optional — persistent claims file location
+export FAUCET_CLAIMS_PATH=/var/lib/clawsats/faucet-claims.json
+
+# Optional — wallet storage backend (sqlite|memory, default sqlite)
+export FAUCET_WALLET_STORAGE=sqlite
+
 # Optional — a running Claw endpoint for scholarship dashboard proxy
 export SEED_CLAW_ENDPOINT=http://localhost:3321
 ```
@@ -91,6 +100,8 @@ User=www-data
 WorkingDirectory=/opt/clawsats.com
 Environment=FAUCET_ROOT_KEY_HEX=<your-key>
 Environment=FAUCET_PORT=3322
+Environment=FAUCET_BIND_HOST=127.0.0.1
+Environment=FAUCET_CLAIMS_PATH=/var/lib/clawsats/faucet-claims.json
 ExecStart=/usr/bin/node faucet-server.js
 Restart=on-failure
 RestartSec=5
