@@ -50,6 +50,9 @@ const SEED_CLAW_ENDPOINT = process.env.SEED_CLAW_ENDPOINT || '';
 const WALLET_STORAGE_MODE = (process.env.FAUCET_WALLET_STORAGE || 'sqlite').toLowerCase();
 const WOC_API_BASE = process.env.WOC_API_BASE || 'https://api.whatsonchain.com/v1/bsv/main';
 const MIN_DRIP_SPENDABLE = parseInt(process.env.MIN_DRIP_SPENDABLE || '250', 10);
+const FAUCET_RESERVE_SLOTS = Number.isFinite(Number(process.env.FAUCET_RESERVE_SLOTS))
+  ? Math.max(0, parseInt(process.env.FAUCET_RESERVE_SLOTS, 10))
+  : null;
 
 // --- Wallet (lazy-initialized) ---
 let faucetWallet = null;
@@ -317,6 +320,34 @@ async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats 
     )) {
       console.warn('[FAUCET] createAction could not see spendable inputs in memory mode; trying direct P2PKH fallback path.');
       return sendViaDirectP2PKHFallback(identityKey, DRIP_AMOUNT);
+    }
+    throw err;
+  }
+}
+
+async function sendScholarshipToIdentityKey(identityKey, satoshis) {
+  const lockingScript = p2pkhFromPubkey(identityKey);
+  try {
+    const result = await faucetWallet.createAction({
+      description: `ClawSats scholarship: ${satoshis} sats to ${identityKey.substring(0, 16)}...`,
+      outputs: [{
+        satoshis,
+        lockingScript,
+        outputDescription: 'Scholarship distribution'
+      }],
+      labels: ['clawsats-scholarship'],
+      options: { acceptDelayedBroadcast: false }
+    });
+    const txid = result.txid || null;
+    return { txid, status: txid ? 'sent' : 'broadcast_pending' };
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    if (walletBackend === 'memory' && (
+      msg.toLowerCase().includes('insufficient funds') ||
+      msg.toLowerCase().includes('needed')
+    )) {
+      console.warn('[SCHOLARSHIP] createAction could not see spendable inputs in memory mode; trying direct P2PKH fallback path.');
+      return sendViaDirectP2PKHFallback(identityKey, satoshis);
     }
     throw err;
   }
@@ -828,8 +859,11 @@ app.post('/api/scholarships/distribute', async (req, res) => {
 
   // Check real wallet balance
   const balance = await getWalletBalance();
-  // Reserve some sats for faucet drips and tx fees
-  const reserveForFaucet = (MAX_CLAIMS - db.count) * (DRIP_AMOUNT + 1);
+  // Reserve sats for pending claims only by default (or explicit env override).
+  // Reserving all future 499 potential claims blocks scholarship distribution.
+  const pendingClaims = getPendingClaimEntries().length;
+  const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
+  const reserveForFaucet = reserveSlots * MIN_DRIP_SPENDABLE;
   const availableForScholarships = Math.max(0, balance - reserveForFaucet - 100); // 100 sat buffer
 
   if (availableForScholarships < 1) {
@@ -837,29 +871,29 @@ app.post('/api/scholarships/distribute', async (req, res) => {
       distributed: 0,
       walletBalance: balance,
       reservedForFaucet: reserveForFaucet,
+      reserveSlots,
+      pendingClaims,
       message: 'Insufficient balance after reserving for faucet drips. Send more BSV to the scholarship address.'
     });
   }
 
-  // Find eligible Claws: those with endpoints in the directory
+  // Find eligible Claws: all known identities (claims + registered directory entries).
   const eligible = [];
   for (const [key, entry] of Object.entries(directory)) {
-    if (entry.endpoint) {
-      eligible.push({ identityKey: key, endpoint: entry.endpoint });
-    }
+    eligible.push({ identityKey: key, endpoint: entry.endpoint || null });
   }
-  // Also include faucet claims that have endpoints
-  for (const [key, claim] of Object.entries(db.claims)) {
+  // Also include faucet claims (even if not registered with endpoint yet)
+  for (const [key] of Object.entries(db.claims)) {
     const dirEntry = directory[key];
-    if (dirEntry && dirEntry.endpoint && !eligible.find(e => e.identityKey === key)) {
-      eligible.push({ identityKey: key, endpoint: dirEntry.endpoint });
+    if (!eligible.find(e => e.identityKey === key)) {
+      eligible.push({ identityKey: key, endpoint: dirEntry?.endpoint || null });
     }
   }
 
   if (eligible.length === 0) {
     return res.json({
       distributed: 0,
-      message: 'No eligible Claws with endpoints. Claws must register in the directory first.',
+      message: 'No eligible Claws found yet.',
       walletBalance: balance
     });
   }
@@ -884,19 +918,9 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     let status = 'failed';
 
     try {
-      const lockingScript = p2pkhFromPubkey(claw.identityKey);
-      const result = await faucetWallet.createAction({
-        description: `ClawSats scholarship: ${perClaw} sats to ${claw.identityKey.substring(0, 16)}...`,
-        outputs: [{
-          satoshis: perClaw,
-          lockingScript,
-          outputDescription: 'Scholarship distribution'
-        }],
-        labels: ['clawsats-scholarship'],
-        options: { acceptDelayedBroadcast: false }
-      });
-      txid = result.txid || null;
-      status = txid ? 'sent' : 'broadcast_pending';
+      const result = await sendScholarshipToIdentityKey(claw.identityKey, perClaw);
+      txid = result.txid;
+      status = result.status;
     } catch (err) {
       console.warn(`[SCHOLARSHIP] Send failed for ${claw.identityKey.substring(0, 16)}...: ${err.message}`);
       break; // Stop distributing if wallet errors (likely insufficient funds)
