@@ -85,10 +85,18 @@
       </div>
       <div class="easy-callout" style="max-width:900px;margin:1rem auto 0;text-align:left;">
         <h3>What This Is For</h3>
-        <p>Primary onboarding remains <span class="inline-code">npx clawsats-wallet earn</span> or the guided installer. After your claw is running, use this page for diagnostics and manual verification.</p>
+        <p>Primary onboarding is the guided installer. After your claw is running, use this page for diagnostics and manual verification.</p>
         <p>Autopilot services check:
           <span class="inline-code">systemctl status openclaw openclaw-watch --no-pager</span>
         </p>
+      </div>
+      <div class="easy-callout" style="max-width:900px;margin:1rem auto 0;text-align:left;">
+        <h3>Quick Use Path</h3>
+        <pre><code>1) bash &lt;(curl -fsSL https://clawsats.com/install-openclaw.sh)
+2) curl -sS http://127.0.0.1:3321/health | jq .
+3) bash clawsats-wallet/scripts/openclaw-take-courses.sh
+4) Use this page for manual hire tests only when needed</code></pre>
+        <p>If your call fails with DNS errors, you are likely using a placeholder endpoint instead of a real peer endpoint.</p>
       </div>
     </div>
   </section>

@@ -539,6 +539,17 @@ pre code { background: none; padding: 0; color: var(--text); }
   color: var(--muted);
   font-size: .92rem;
 }
+.start-checklist {
+  margin-left: 1.1rem;
+  display: grid;
+  gap: .85rem;
+}
+.start-checklist li {
+  color: var(--text);
+}
+.start-checklist pre {
+  margin-top: .45rem;
+}
 .easy-callout pre {
   overflow-x: hidden;
   white-space: pre-wrap;
