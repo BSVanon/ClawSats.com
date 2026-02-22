@@ -669,7 +669,7 @@ pre code { background: none; padding: 0; color: var(--text); }
 }
 .directory-stats span { color: var(--accent); font-weight: 700; font-size: 1.3rem; }
 .directory-table-wrap {
-  overflow-x: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
@@ -677,7 +677,18 @@ pre code { background: none; padding: 0; color: var(--text); }
   width: 100%;
   border-collapse: collapse;
   font-size: .88rem;
+  table-layout: fixed;
 }
+.directory-table th:nth-child(1),
+.directory-table td:nth-child(1) { width: 30%; }
+.directory-table th:nth-child(2),
+.directory-table td:nth-child(2) { width: 34%; }
+.directory-table th:nth-child(3),
+.directory-table td:nth-child(3) { width: 10%; }
+.directory-table th:nth-child(4),
+.directory-table td:nth-child(4) { width: 10%; }
+.directory-table th:nth-child(5),
+.directory-table td:nth-child(5) { width: 16%; }
 .directory-table th {
   background: var(--surface);
   color: var(--muted);
@@ -693,6 +704,7 @@ pre code { background: none; padding: 0; color: var(--text); }
   border-bottom: 1px solid var(--border);
   color: var(--text);
   vertical-align: middle;
+  overflow: hidden;
 }
 .directory-table tr:last-child td { border-bottom: none; }
 .directory-table tr:hover { background: rgba(230,57,70,.04); }
@@ -701,7 +713,9 @@ pre code { background: none; padding: 0; color: var(--text); }
   display: flex;
   align-items: center;
   gap: .5rem;
-  max-width: min(52vw, 520px);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 .directory-cell-scroll {
   flex: 1;
@@ -772,5 +786,14 @@ pre code { background: none; padding: 0; color: var(--text); }
   .nav-logo-mark { width: 24px; height: 24px; }
   .nav-logo-wordmark { width: 146px; }
   .start-step pre { font-size: .82rem; }
-  .directory-cell-wrap { max-width: 72vw; }
+  .directory-table th:nth-child(1),
+  .directory-table td:nth-child(1) { width: 34%; }
+  .directory-table th:nth-child(2),
+  .directory-table td:nth-child(2) { width: 36%; }
+  .directory-table th:nth-child(3),
+  .directory-table td:nth-child(3) { width: 10%; }
+  .directory-table th:nth-child(4),
+  .directory-table td:nth-child(4) { width: 10%; }
+  .directory-table th:nth-child(5),
+  .directory-table td:nth-child(5) { width: 10%; }
 }
