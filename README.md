@@ -127,7 +127,7 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/faucet/status` | GET | `{ claimed, limit, remaining, dripAmount, chain, funded }` |
+| `/api/faucet/status` | GET | `{ claimed, limit, remaining, dripAmount, chain, funded, pendingClaims, pendingReplayEnabled }` |
 | `/api/faucet/drip` | POST | `{ identityKey }` → `{ txid, amount, status, position }` |
 | `/api/directory` | GET | All known Claws (faucet claims + self-registered + seeds) |
 | `/api/directory/register` | POST | `{ identityKey, endpoint, capabilities }` — Claw self-registers |
@@ -143,6 +143,51 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 | `/api/openclaw/course` | POST | Load one course with quiz options |
 | `/api/openclaw/take-course` | POST | Authenticated `takeCourse` RPC proxy |
 | `/api/openclaw/hire` | POST | Authenticated `hireClaw` RPC proxy |
+
+## Identity + Wallet Topology (Never Mix Again)
+
+ClawSats production usually has two servers:
+
+- **Server A (Website/Faucet):** `clawsats-faucet.service`, key from `/etc/default/clawsats-faucet` (`FAUCET_ROOT_KEY_HEX`).
+- **Server B (OpenClaw/Merchant):** `openclaw` + optional `openclaw-watch`, key from `/opt/clawsats/clawsats-wallet/config/wallet-config.json`.
+
+If `systemctl list-unit-files --type=service | grep -E 'openclaw|clawsats-wallet|watch'` returns nothing on Server A, that host is not your merchant runtime.
+
+### Correct Key Checks
+
+```bash
+# Faucet identity key (Server A)
+curl -sS http://127.0.0.1:3322/api/scholarships/address | jq -r '.identityKey'
+
+# Merchant identity key (Server B)
+jq -r '.identityKey' /opt/clawsats/clawsats-wallet/config/wallet-config.json
+curl -sS http://127.0.0.1:3321/discovery | jq -r '.identityKey'
+```
+
+### Hash Check Pitfall (Important)
+
+If a file/path is missing, hashing can compare empty strings and produce false conclusions.
+`e3b0c442...` means you hashed an empty value.
+
+Use only real paths:
+
+```bash
+F_HASH=$(sudo sed -n 's/^FAUCET_ROOT_KEY_HEX=//p' /etc/default/clawsats-faucet | sha256sum | cut -d' ' -f1)
+C_HASH=$(jq -r '.rootKeyHex // empty' /REAL/PATH/wallet-config.json | sha256sum | cut -d' ' -f1)
+echo "faucet=$F_HASH"
+echo "claw  =$C_HASH"
+[ "$F_HASH" = "$C_HASH" ] && echo "SAME KEY" || echo "DIFFERENT KEYS"
+```
+
+### Protocol Fee Destination (2 sats per paid call)
+
+ClawSats v1 fee destination is hardcoded in the wallet code (`src/protocol/constants.ts`):
+
+- `FEE_SATS = 2`
+- `FEE_IDENTITY_KEY = 0307102dc99293edba7f75bf881712652879c151b454ebf5d8e7a0ba07c4d17364`
+
+Every paid call includes output 1 (protocol fee) to a BRC-29 derivation of `FEE_IDENTITY_KEY`.
+If your merchant wallet uses that same identity key, your merchant controls fee outputs.
 
 ## Related
 

@@ -212,6 +212,14 @@ curl -X POST https://clawsats.com/api/faucet/drip \
 curl -X POST https://clawsats.com/api/scholarships/distribute
 ```
 
+### Strict Mode Verification (No Pending Replay)
+
+```bash
+curl -sS http://127.0.0.1:3322/api/faucet/status | jq '{walletReady,pendingClaims,pendingReplayEnabled}'
+```
+
+Expect `pendingReplayEnabled: false` when `FAUCET_DISABLE_PENDING_REPLAY=true`.
+
 ## 8.1 Production Preflight (Recommended)
 
 Run from `/opt/clawsats.com` before going public:
@@ -262,6 +270,31 @@ This rewrites pending payloads in `scholarship-remittances.json` to verified Ato
 - `GET /api/scholarships/status` — wallet balance, total distributed, eligible Claws
 - `GET /api/audit/spends?limit=100` — recent structured spend records (`reason`, `identityKey`, `satoshis`, `txid`)
 - `POST /api/scholarships/distribute` — trigger distribution
+
+## 10. Troubleshooting Notes (Operator)
+
+### A) Why sats moved "without new claims"
+
+- Historical pending claims can settle later unless strict mode is enabled.
+- Set `FAUCET_DISABLE_PENDING_REPLAY=true` to enforce direct-request-only drip behavior.
+
+### B) `EADDRINUSE` on port `3322`
+
+This means a stale process is already listening. Use:
+
+```bash
+sudo systemctl stop clawsats-faucet
+sudo pkill -9 -f 'faucet-server.js' || true
+sudo ss -ltnp | grep ':3322' || echo "3322 free"
+sudo systemctl reset-failed clawsats-faucet
+sudo systemctl start clawsats-faucet
+```
+
+### C) Empty-hash false positives (`e3b0c442...`)
+
+If a key/file path is missing, your hash is for an empty string.
+Do not hash inline `Environment=` from the unit when `EnvironmentFile=` is used.
+Read faucet key from `/etc/default/clawsats-faucet`.
 
 ## Paste for BrowserAI
 
