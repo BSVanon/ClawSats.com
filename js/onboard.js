@@ -42,13 +42,20 @@
   async function loadDashboard() {
     var endpoint = endpointEl.value.trim();
     if (!endpoint) return;
+    var card = el('dashboardCard');
+    card.style.display = '';
     try {
       var res = await postJSON('/api/openclaw/status', { endpoint: endpoint });
       renderDashboard(res);
-      el('dashboardCard').style.display = '';
     } catch (err) {
-      el('dashboardCard').style.display = '';
-      el('dashCaps').textContent = 'Status unavailable: ' + err.message;
+      var msg = 'Status unavailable: ' + err.message;
+      msg += '\n\nMake sure your Claw is running the latest code with /api/status.';
+      msg += '\nUpdate: cd /opt/clawsats && git pull && npm run build && systemctl restart openclaw';
+      el('dashCaps').textContent = msg;
+      el('dashPeers').textContent = '-';
+      el('dashJobs').textContent = '-';
+      el('dashEvents').textContent = '-';
+      el('dashEdu').textContent = '-';
     }
   }
 
