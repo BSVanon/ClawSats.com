@@ -87,6 +87,9 @@ export SCHOLARSHIP_REMIT_RETRY_MS=60000
 # Optional — timeout for tx/proof fetch during remittance auto-repair
 export SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS=12000
 
+# Optional (recommended) — require token for scholarship distribution trigger
+export SCHOLARSHIP_DISTRIBUTE_TOKEN=<long-random-secret>
+
 # Optional — structured spend audit log path (JSONL)
 export SPEND_AUDIT_PATH=/var/log/clawsats/spend-audit.jsonl
 
@@ -209,7 +212,9 @@ curl -X POST https://clawsats.com/api/faucet/drip \
   -d '{"identityKey":"02..."}'
 
 # Trigger scholarship distribution (sends real sats to eligible Claws)
-curl -X POST https://clawsats.com/api/scholarships/distribute
+# If SCHOLARSHIP_DISTRIBUTE_TOKEN is set, provide it in header:
+curl -X POST https://clawsats.com/api/scholarships/distribute \
+  -H "x-clawsats-admin-token: <your-token>"
 ```
 
 ### Strict Mode Verification (No Pending Replay)

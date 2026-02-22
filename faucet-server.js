@@ -15,6 +15,7 @@
  *   FAUCET_ROOT_KEY_HEX  — 64-char hex private key for the faucet wallet (REQUIRED)
  *   FAUCET_PORT           — port (default 3322)
  *   SEED_CLAW_ENDPOINT    — URL of a running Claw for scholarship proxying (optional)
+ *   SCHOLARSHIP_DISTRIBUTE_TOKEN — optional admin token for /api/scholarships/distribute
  *   SPEND_AUDIT_PATH      — JSONL path for structured spend audit records (optional)
  *
  * Endpoints:
@@ -78,6 +79,7 @@ const SCHOLARSHIP_ALLOW_LEGACY_P2PKH = String(process.env.SCHOLARSHIP_ALLOW_LEGA
 const SCHOLARSHIP_SUBMIT_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_SUBMIT_TIMEOUT_MS || '10000', 10);
 const SCHOLARSHIP_REMIT_RETRY_MS = parseInt(process.env.SCHOLARSHIP_REMIT_RETRY_MS || '60000', 10);
 const SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS || '12000', 10);
+const SCHOLARSHIP_DISTRIBUTE_TOKEN = String(process.env.SCHOLARSHIP_DISTRIBUTE_TOKEN || '');
 const FAUCET_DISABLE_PENDING_REPLAY = String(process.env.FAUCET_DISABLE_PENDING_REPLAY || 'false').toLowerCase() === 'true';
 const SPEND_AUDIT_PATH = process.env.SPEND_AUDIT_PATH || path.join(__dirname, 'spend-audit.jsonl');
 const TRUST_PROXY_HOPS = Math.max(0, parseInt(process.env.TRUST_PROXY_HOPS || '1', 10));
@@ -333,6 +335,30 @@ function pubkeyToAddress(pubkeyHex) {
 
 function randomHex(bytes = 8) {
   return crypto.randomBytes(bytes).toString('hex');
+}
+
+function safeTokenEqual(expected, received) {
+  if (!expected || !received) return false;
+  const a = Buffer.from(String(expected), 'utf8');
+  const b = Buffer.from(String(received), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function getBearerToken(req) {
+  const auth = req.get('authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : '';
+}
+
+function hasScholarshipDistributeAuth(req) {
+  if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) return true;
+  const headerToken = String(req.get('x-clawsats-admin-token') || '').trim();
+  const bearerToken = getBearerToken(req);
+  return (
+    safeTokenEqual(SCHOLARSHIP_DISTRIBUTE_TOKEN, headerToken) ||
+    safeTokenEqual(SCHOLARSHIP_DISTRIBUTE_TOKEN, bearerToken)
+  );
 }
 
 function stripTrailingSlash(url) {
@@ -1743,6 +1769,12 @@ app.get('/api/audit/spends', (req, res) => {
 // This sends REAL sats from the faucet wallet to Claws.
 // The wallet must have balance (from human donations sent to the QR code address).
 app.post('/api/scholarships/distribute', async (req, res) => {
+  if (!hasScholarshipDistributeAuth(req)) {
+    return res.status(401).json({
+      error: 'Unauthorized scholarship distribution request.'
+    });
+  }
+
   const ip = req.ip || req.connection.remoteAddress;
   if (!checkRateLimit(ip, 'scholarship-distribute', RATE_LIMIT_DISTRIBUTE_PER_MIN)) {
     return res.status(429).json({ error: 'Too many distribution requests. Try again in a minute.' });
@@ -1892,6 +1924,9 @@ app.get('*', (req, res) => {
 // --- Start ---
 async function main() {
   await initWallet();
+  if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) {
+    console.warn('[SCHOLARSHIP] ⚠️  SCHOLARSHIP_DISTRIBUTE_TOKEN not set: /api/scholarships/distribute is publicly callable.');
+  }
   if (walletReady) {
     if (!FAUCET_DISABLE_PENDING_REPLAY) {
       const replay = await settlePendingClaims(100);
