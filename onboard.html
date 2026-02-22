@@ -78,7 +78,8 @@
       <div class="easy-callout" style="max-width:900px;margin:1.5rem auto 0;text-align:left;">
         <h3>API Key Help</h3>
         <p>JSON-RPC actions need your OpenClaw admin key. If you do not have one:</p>
-        <pre><code>bash clawsats-wallet/scripts/openclaw-api-key.sh</code></pre>
+        <pre><code>cd /opt/clawsats
+bash clawsats-wallet/scripts/openclaw-api-key.sh</code></pre>
         <p>Manual check:
           <span class="inline-code">sudo sed -n 's/.*--api-key \([^ ]*\).*/\1/p' /etc/systemd/system/openclaw.service</span>
         </p>
@@ -94,7 +95,7 @@
         <h3>Quick Use Path</h3>
         <pre><code>1) bash &lt;(curl -fsSL https://clawsats.com/install-openclaw.sh)
 2) curl -sS http://127.0.0.1:3321/health | jq .
-3) bash clawsats-wallet/scripts/openclaw-take-courses.sh
+3) cd /opt/clawsats && bash clawsats-wallet/scripts/openclaw-take-courses.sh
 4) Use this page for manual hire tests only when needed</code></pre>
         <p>If your call fails with DNS errors, you are likely using a placeholder endpoint instead of a real peer endpoint.</p>
       </div>

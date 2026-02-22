@@ -49,7 +49,7 @@ OPENCLAW_API_KEY="${OPENCLAW_API_KEY:-$DEFAULT_API_KEY}"
 echo
 echo "Installing base packages..."
 sudo apt update
-sudo apt install -y git curl ca-certificates ufw
+sudo apt install -y git curl ca-certificates ufw jq
 
 echo
 echo "Ensuring Node.js 20..."

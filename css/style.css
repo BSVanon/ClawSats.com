@@ -692,10 +692,42 @@ pre code { background: none; padding: 0; color: var(--text); }
   padding: .6rem 1rem;
   border-bottom: 1px solid var(--border);
   color: var(--text);
+  vertical-align: middle;
 }
 .directory-table tr:last-child td { border-bottom: none; }
 .directory-table tr:hover { background: rgba(230,57,70,.04); }
 .directory-table a { color: var(--accent); }
+.directory-cell-wrap {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  max-width: min(52vw, 520px);
+}
+.directory-cell-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+.directory-cell-scroll code {
+  font-size: .8rem;
+}
+.directory-copy-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: .22rem .55rem;
+  font-size: .72rem;
+  cursor: pointer;
+  line-height: 1.2;
+  flex: 0 0 auto;
+}
+.directory-copy-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 /* ── Nav Social ── */
 
@@ -740,4 +772,5 @@ pre code { background: none; padding: 0; color: var(--text); }
   .nav-logo-mark { width: 24px; height: 24px; }
   .nav-logo-wordmark { width: 146px; }
   .start-step pre { font-size: .82rem; }
+  .directory-cell-wrap { max-width: 72vw; }
 }

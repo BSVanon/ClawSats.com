@@ -13,25 +13,26 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 This prints a 64-character hex string. **This is your faucet wallet's private key.**
 Save it securely — anyone with this key controls the faucet funds.
 
-## 2. Get the Identity Key (Public Key)
+## 2. Get the Faucet Funding Address
 
 ```bash
 export FAUCET_ROOT_KEY_HEX=<paste-your-64-char-hex-key>
-node -e "
-  const { PrivateKey } = require('@bsv/sdk');
-  const pk = PrivateKey.fromHex(process.env.FAUCET_ROOT_KEY_HEX);
-  console.log('Identity key:', pk.toPublicKey().toString());
-"
+cd /opt/clawsats.com
+FAUCET_ROOT_KEY_HEX=$FAUCET_ROOT_KEY_HEX node faucet-server.js
 ```
 
-This prints the compressed public key (starts with `02` or `03`, 66 hex chars).
-This is the address you'll fund with BSV.
+On startup, the server prints:
+- `Derived identity key: 02...` (protocol identity)
+- `Derived address: 1...` (the **BSV address to fund**)
+
+Use the `Derived address` value (or `GET /api/scholarships/address`) for funding.
+Do not fund the identity key directly.
 
 ## 3. Fund the Wallet
 
-Send mainnet BSV to the identity key printed above. Options:
+Send mainnet BSV to the faucet address printed above. Options:
 
-- **HandCash / RelayX / any BSV wallet** — send to the identity key
+- **HandCash / RelayX / any BSV wallet** — send to the faucet address
 - **From another Claw** — use `createAction` to send sats to the faucet's P2PKH address
 - **From an exchange** — withdraw BSV to the faucet address
 
@@ -101,7 +102,8 @@ FAUCET_ROOT_KEY_HEX=<key> node faucet-server.js
 On first start you'll see:
 ```
 [FAUCET] Wallet initialized: 02a1b2c3d4e5f6...
-[FAUCET]    Fund this identity key with mainnet BSV to enable drips.
+[FAUCET]    BSV Address: 1ABC...
+[FAUCET]    Fund this address with mainnet BSV to enable drips.
 
 ClawSats Faucet + Website (mainnet)
    http://0.0.0.0:3322
@@ -225,7 +227,7 @@ real wallet balance and distributes funds to Claws.
 3. Human sends BSV from any wallet (HandCash, Yours, RelayX, etc.)
 4. Server detects the balance increase via `listOutputs`
 5. `POST /api/scholarships/distribute` splits funds equally across Claws with real registered endpoints
-6. Each Claw receives real sats via `createAction` (P2PKH to their identity key)
+6. Each Claw receives a BRC-29 remittance, then internalizes it via `POST /wallet/submit-payment`
 
 By default, claim-only entries with no endpoint are excluded from scholarship distribution to avoid accidental legacy sends that the receiver may not have internalized.
 Scholarship remittance is submitted to each recipient Claw via `POST /wallet/submit-payment`, where the Claw internalizes the payment into wallet state. If submission is temporarily unreachable, retries are persisted in `scholarship-remittances.json`.
@@ -272,6 +274,6 @@ On the VPS at /opt/clawsats.com:
 6. Verify Nginx proxies /api/* to 127.0.0.1:3322
 7. sudo systemctl reload nginx
 8. Test: curl https://clawsats.com/api/faucet/status
-9. The faucet prints its identity key on startup — fund that key with ~50,500 sats
+9. The faucet prints its BSV address on startup — fund that address with ~50,500 sats
    of mainnet BSV to enable real drips.
 ```

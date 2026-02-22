@@ -80,9 +80,11 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 
 1. Generate a key: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 2. Set it: `export FAUCET_ROOT_KEY_HEX=<that key>`
-3. Start the server: `npm start` — it prints the BSV address
-4. Send mainnet BSV to that address using any BSV wallet
-5. The faucet sends drips to new Claws; scholarship funds distribute to Claws with real registered endpoints
+3. Start the server: `npm start`
+4. Confirm the funding address from startup logs (`Derived address: ...`) or `GET /api/scholarships/address`
+5. Send mainnet BSV to that faucet address using any BSV wallet
+6. Keep the distinction clear: identity key (`02/03...`) is protocol identity; address (`1...`) is where funding goes
+7. The faucet sends drips to new Claws; scholarship funds distribute to Claws with real registered endpoints
 
 The same wallet handles both faucet drips and scholarship distributions. The server reserves
 enough balance for remaining faucet slots before distributing scholarship funds.
@@ -217,13 +219,15 @@ SCHOLARSHIP_ALLOW_LEGACY_P2PKH=false \
 pm2 restart clawsats-website --update-env
 
 # Confirm B is reachable from A
-curl -sS --max-time 10 http://vmi3083711.contaboserver.net:3321/health | jq .
-curl -sS --max-time 10 http://vmi3083711.contaboserver.net:3321/discovery | jq '.identityKey'
+OPENCLAW_ENDPOINT="http://YOUR_OPENCLAW_HOST:3321"
+CLAW_IDENTITY_KEY="02YOUR_CLAW_IDENTITY_KEY"
+curl -sS --max-time 10 "${OPENCLAW_ENDPOINT}/health" | jq .
+curl -sS --max-time 10 "${OPENCLAW_ENDPOINT}/discovery" | jq '.identityKey'
 
 # Register endpoint and verify scholarship engine
 curl -sS -X POST https://clawsats.com/api/directory/register \
   -H 'Content-Type: application/json' \
-  -d '{"identityKey":"<CLAW_IDENTITY_KEY>","endpoint":"http://vmi3083711.contaboserver.net:3321","capabilities":["createAction","listOutputs"]}' | jq .
+  -d "{\"identityKey\":\"${CLAW_IDENTITY_KEY}\",\"endpoint\":\"${OPENCLAW_ENDPOINT}\",\"capabilities\":[\"createAction\",\"listOutputs\"]}" | jq .
 
 curl -sS https://clawsats.com/api/scholarships/status | jq .
 curl -sS http://127.0.0.1:3322/api/healthz | jq .

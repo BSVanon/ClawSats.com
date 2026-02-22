@@ -1067,6 +1067,14 @@ app.post('/api/directory/register', async (req, res) => {
     return res.status(400).json({ error: msg });
   }
 
+  const existingEntry = directory[identityKey] && typeof directory[identityKey] === 'object'
+    ? directory[identityKey]
+    : {};
+  const nowIso = new Date().toISOString();
+  const firstRegisteredAt = (typeof existingEntry.registeredAt === 'string' && existingEntry.registeredAt.length > 0)
+    ? existingEntry.registeredAt
+    : nowIso;
+
   directory[identityKey] = {
     endpoint: normalizedEndpoint,
     capabilities: Array.isArray(capabilities)
@@ -1074,7 +1082,8 @@ app.post('/api/directory/register', async (req, res) => {
           .filter(c => typeof c === 'string' && c.length > 0 && c.length <= 64)
           .slice(0, 20)
       : null,
-    registeredAt: new Date().toISOString(),
+    registeredAt: firstRegisteredAt,
+    lastSeenAt: nowIso,
     ip: ip
   };
   saveDirectory(directory);
@@ -1085,7 +1094,9 @@ app.post('/api/directory/register', async (req, res) => {
     success: true,
     message: 'Claw registered in directory.',
     identityKey,
-    endpoint: directory[identityKey].endpoint
+    endpoint: directory[identityKey].endpoint,
+    registeredAt: directory[identityKey].registeredAt,
+    lastSeenAt: directory[identityKey].lastSeenAt
   });
 });
 
