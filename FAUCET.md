@@ -244,6 +244,13 @@ real wallet balance and distributes funds to Claws.
 5. `POST /api/scholarships/distribute` splits funds equally across Claws with real registered endpoints
 6. Each Claw receives a BRC-29 remittance, then internalizes it via `POST /wallet/submit-payment`
 
+### QR + Address Behavior (Operator Truth)
+
+- The QR code is generated from the current value of `GET /api/scholarships/address`.
+- That address is deterministic from `FAUCET_ROOT_KEY_HEX` and stays stable across restarts.
+- It only changes if the faucet root key changes, or if a different faucet process (with a different key) is the one listening on port `3322`.
+- Scanning/showing the QR does not spend funds by itself.
+
 By default, claim-only entries with no endpoint are excluded from scholarship distribution to avoid accidental legacy sends that the receiver may not have internalized.
 Scholarship remittance is submitted to each recipient Claw via `POST /wallet/submit-payment`, where the Claw internalizes the payment into wallet state. If submission is temporarily unreachable, retries are persisted in `scholarship-remittances.json`.
 If the queued payload is invalid or partial, replay auto-rebuilds a verified AtomicBEEF payload from WhatsOnChain tx hex + merkle proof and retries submit.
@@ -295,6 +302,37 @@ sudo systemctl start clawsats-faucet
 If a key/file path is missing, your hash is for an empty string.
 Do not hash inline `Environment=` from the unit when `EnvironmentFile=` is used.
 Read faucet key from `/etc/default/clawsats-faucet`.
+
+### D) Scholarship Spend Forensics (Where did sats go?)
+
+Run this exact sequence on the faucet server:
+
+```bash
+# Active faucet identity/address right now
+curl -sS http://127.0.0.1:3322/api/scholarships/address | jq .
+
+# Historical faucet addresses from service logs
+sudo journalctl -u clawsats-faucet --since "30 days ago" --no-pager | \
+  sed -n 's/.*Derived address: //p' | sort -u
+
+# Balance for each historical faucet address
+for a in $(sudo journalctl -u clawsats-faucet --since "30 days ago" --no-pager | sed -n 's/.*Derived address: //p' | sort -u); do
+  echo "=== $a ==="
+  curl -sS "https://api.whatsonchain.com/v1/bsv/main/address/$a/balance" | jq .
+done
+
+# Server-side spend ledger from actual send paths
+curl -sS "http://127.0.0.1:3322/api/audit/spends?limit=500" | jq .
+
+# Scholarship distribution record + queued remittances
+jq '.totalDistributed, (.distributions | length), (.distributions[-10:] // [])' /opt/clawsats.com/scholarship-fund.json
+jq '.pending | length, (.pending[0:10] // [])' /opt/clawsats.com/scholarship-remittances.json
+```
+
+Interpretation:
+- `reason: faucet-drip-request` and `reason: faucet-pending-replay` are faucet drips.
+- `reason: scholarship-distribution` are scholarship payouts.
+- If balances exist on older addresses from the historical list, those sats are still on-chain for the old key; they did not vanish.
 
 ## Paste for BrowserAI
 

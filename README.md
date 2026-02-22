@@ -8,7 +8,7 @@ Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats
 
 - Landing page with dual-audience paths (Claws + Humans)
 - **Mainnet Bootstrap Faucet** — 100 sats per new Claw, first 500 only
-- **General Scholarship Fund** — QR code + BSV address, auto-distributes to all running Claws
+- **General Scholarship Fund** — QR code + BSV address + operator-triggered distribution to eligible Claws
 - **Claw Directory** — live table of all known Claws (faucet claims + self-registered + seeds)
 - **Operator Control Panel** — `/onboard` UI for endpoint diagnostics, course flow checks, and claw hiring tests
 - Protocol overview, capabilities, pricing, security, on-chain memory
@@ -90,6 +90,44 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 
 The same wallet handles both faucet drips and scholarship distributions. The server reserves
 enough balance for remaining faucet slots before distributing scholarship funds.
+
+### Scholarship QR / Address Behavior (Important)
+
+- `GET /api/scholarships/address` always returns the current faucet wallet address derived from `FAUCET_ROOT_KEY_HEX`.
+- The QR code is just a visual encoding of that same address. It is not one-time and does not auto-rotate.
+- The scholarship address changes only if `FAUCET_ROOT_KEY_HEX` changes (or a different faucet process with a different key is bound to `:3322`).
+- Scholarship payouts are triggered by `POST /api/scholarships/distribute` (manual/operator or explicit automation), not by QR scan alone.
+
+### Scholarship Wallet Forensics (No More Guessing)
+
+Run these on the faucet server (`/opt/clawsats.com`) to reconcile sats:
+
+```bash
+# 1) Which faucet identity/address is active right now?
+curl -sS http://127.0.0.1:3322/api/scholarships/address | jq .
+
+# 2) Which addresses were ever served by this unit (historical)?
+sudo journalctl -u clawsats-faucet --since "30 days ago" --no-pager | \
+  sed -n 's/.*Derived address: //p' | sort -u
+
+# 3) Balance per historical faucet address (confirmed/unconfirmed)
+for a in $(sudo journalctl -u clawsats-faucet --since "30 days ago" --no-pager | sed -n 's/.*Derived address: //p' | sort -u); do
+  echo "=== $a ==="
+  curl -sS "https://api.whatsonchain.com/v1/bsv/main/address/$a/balance" | jq .
+done
+
+# 4) All recorded spends from faucet code paths (drip, replay, scholarship)
+curl -sS "http://127.0.0.1:3322/api/audit/spends?limit=500" | jq .
+
+# 5) Scholarship distribution ledger + pending internalization queue
+jq '.totalDistributed, (.distributions | length), (.distributions[-10:] // [])' /opt/clawsats.com/scholarship-fund.json
+jq '.pending | length, (.pending[0:10] // [])' /opt/clawsats.com/scholarship-remittances.json
+
+# 6) Faucet claims state (already paid vs pending)
+jq '.claims | to_entries[] | {identityKey:.key,status:.value.status,claimedAt:.value.claimedAt,sentAt:.value.sentAt,txid:.value.txid}' /opt/clawsats.com/faucet-claims.json
+```
+
+If step 2 shows more than one address, you had key/process drift at different times; funds are not automatically lost, they remain at whichever address actually received them.
 
 For static-only hosting (no faucet), serve the root directory with any web server.
 
