@@ -54,6 +54,12 @@
       border-radius: 4px;
       font-size: .82rem;
     }
+    .dash-stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: .6rem .75rem; text-align: center; }
+    .dash-num { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+    .dash-lbl { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    @media (max-width: 700px) {
+      #dashboardCard div[style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
+    }
   </style>
 </head>
 <body>
@@ -121,6 +127,42 @@ bash clawsats-wallet/scripts/openclaw-api-key.sh</code></pre>
           </div>
           <p class="panel-note">Connection test checks <span class="inline-code">/health</span>, <span class="inline-code">/discovery</span>, and <span class="inline-code">/courses</span>.</p>
           <div class="panel-output" id="connectOut">Waiting for endpoint...</div>
+        </div>
+
+        <div class="panel-card" id="dashboardCard" style="display:none;grid-column:1/-1;">
+          <h3>&#128200; Live Dashboard <span id="dashRefreshLabel" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem;">auto-refresh: 15s</span></h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem;margin-bottom:1rem;" id="dashStats">
+            <div class="dash-stat"><div class="dash-num" id="ds-calls">-</div><div class="dash-lbl">Calls Served</div></div>
+            <div class="dash-stat"><div class="dash-num" id="ds-callers">-</div><div class="dash-lbl">Unique Callers</div></div>
+            <div class="dash-stat"><div class="dash-num" id="ds-peers">-</div><div class="dash-lbl">Known Peers</div></div>
+            <div class="dash-stat"><div class="dash-num" id="ds-caps">-</div><div class="dash-lbl">Capabilities</div></div>
+            <div class="dash-stat"><div class="dash-num" id="ds-memory">-</div><div class="dash-lbl">On-Chain Memories</div></div>
+            <div class="dash-stat"><div class="dash-num" id="ds-uptime">-</div><div class="dash-lbl">Uptime</div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div>
+              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Capabilities</h4>
+              <div class="panel-output" id="dashCaps" style="max-height:200px;">Loading...</div>
+            </div>
+            <div>
+              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Known Peers</h4>
+              <div class="panel-output" id="dashPeers" style="max-height:200px;">Loading...</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.75rem;">
+            <div>
+              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Brain Jobs</h4>
+              <div class="panel-output" id="dashJobs" style="max-height:160px;">Loading...</div>
+            </div>
+            <div>
+              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Recent Decisions</h4>
+              <div class="panel-output" id="dashEvents" style="max-height:160px;">Loading...</div>
+            </div>
+          </div>
+          <div style="margin-top:.75rem;">
+            <h4 style="font-size:.85rem;margin-bottom:.4rem;">Education &amp; Memory</h4>
+            <div class="panel-output" id="dashEdu" style="max-height:80px;">Loading...</div>
+          </div>
         </div>
 
         <div class="panel-card">

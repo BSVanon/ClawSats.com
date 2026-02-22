@@ -1,6 +1,7 @@
 (function () {
   const STORAGE_KEY = 'clawsats_onboard_v1';
   let currentCourse = null;
+  let dashboardTimer = null;
 
   const el = (id) => document.getElementById(id);
   const endpointEl = el('endpoint');
@@ -21,6 +22,105 @@
 
   function writeOut(id, value) {
     el(id).textContent = typeof value === 'string' ? value : pretty(value);
+  }
+
+  function fmt(n) { return typeof n === 'number' ? n.toLocaleString() : String(n || 0); }
+  function short(s, n) { return s && s.length > n ? s.substring(0, n) + '...' : s || ''; }
+  function uptimeFmt(s) {
+    if (!s || s < 60) return (s || 0) + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+    return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  }
+  function ago(ts) {
+    if (!ts) return '-';
+    var d = Date.now() - new Date(ts).getTime();
+    if (d < 60000) return Math.floor(d / 1000) + 's ago';
+    if (d < 3600000) return Math.floor(d / 60000) + 'm ago';
+    return Math.floor(d / 3600000) + 'h ago';
+  }
+
+  async function loadDashboard() {
+    var endpoint = endpointEl.value.trim();
+    if (!endpoint) return;
+    try {
+      var res = await postJSON('/api/openclaw/status', { endpoint: endpoint });
+      renderDashboard(res);
+      el('dashboardCard').style.display = '';
+    } catch (err) {
+      el('dashboardCard').style.display = '';
+      el('dashCaps').textContent = 'Status unavailable: ' + err.message;
+    }
+  }
+
+  function renderDashboard(d) {
+    el('ds-calls').textContent = fmt(d.reputation ? d.reputation.totalCallsServed : 0);
+    el('ds-callers').textContent = fmt(d.reputation ? d.reputation.uniqueCallers : 0);
+    el('ds-peers').textContent = fmt(d.peerCount);
+    el('ds-caps').textContent = fmt(d.capabilities ? d.capabilities.length : 0);
+    el('ds-memory').textContent = fmt(d.memory ? (d.memory.totalRecords || d.memory.total || 0) : 0);
+    el('ds-uptime').textContent = uptimeFmt(d.uptime || 0);
+
+    // Capabilities
+    var caps = d.capabilities || [];
+    if (caps.length > 0) {
+      el('dashCaps').textContent = caps.map(function (c) {
+        return c.name + ' (' + c.pricePerCall + ' sat) — ' + fmt(c.callsServed) + ' calls';
+      }).join('\n');
+    } else {
+      el('dashCaps').textContent = 'No capabilities registered.';
+    }
+
+    // Peers
+    var peers = d.peers || [];
+    if (peers.length > 0) {
+      el('dashPeers').textContent = peers.slice(0, 15).map(function (p) {
+        return short(p.identityKey, 16) + ' @ ' + short(p.endpoint, 30) + '  ' + ago(p.lastSeenAt);
+      }).join('\n');
+      if (peers.length > 15) el('dashPeers').textContent += '\n... and ' + (peers.length - 15) + ' more';
+    } else {
+      el('dashPeers').textContent = 'No peers discovered yet.';
+    }
+
+    // Jobs
+    var jobs = d.jobs || {};
+    var jobLines = [];
+    jobLines.push('pending: ' + fmt(jobs.pending) + '  completed: ' + fmt(jobs.completed) + '  failed: ' + fmt(jobs.failed) + '  approval: ' + fmt(jobs.needsApproval));
+    var recent = jobs.recent || [];
+    for (var i = 0; i < recent.length; i++) {
+      var j = recent[i];
+      jobLines.push('[' + j.status + '] ' + j.capability + ' (' + (j.strategy || '-') + ')' + (j.error ? ' ERR: ' + short(j.error, 40) : ''));
+    }
+    el('dashJobs').textContent = jobLines.join('\n') || 'No jobs.';
+
+    // Events
+    var events = d.recentEvents || [];
+    if (events.length > 0) {
+      el('dashEvents').textContent = events.map(function (e) {
+        return (e.ts || '').substring(11, 19) + ' ' + (e.action || '') + ': ' + short(e.reason, 60);
+      }).join('\n');
+    } else {
+      el('dashEvents').textContent = 'No decision events yet.';
+    }
+
+    // Education + Memory
+    var edu = d.education || {};
+    var mem = d.memory || {};
+    var eduLines = [];
+    var completed = edu.coursesCompleted || [];
+    eduLines.push('Courses: ' + completed.length + '/' + fmt(edu.coursesAvailable) + ' completed');
+    if (completed.length > 0) eduLines.push('Completed: ' + completed.join(', '));
+    eduLines.push('On-chain memories: ' + fmt(mem.totalRecords || mem.total || 0));
+    if (mem.masterIndexTxid) eduLines.push('Master index: ' + short(mem.masterIndexTxid, 20));
+    el('dashEdu').textContent = eduLines.join('\n');
+  }
+
+  function startDashboardRefresh() {
+    if (dashboardTimer) clearInterval(dashboardTimer);
+    dashboardTimer = setInterval(loadDashboard, 15000);
+  }
+
+  function stopDashboardRefresh() {
+    if (dashboardTimer) { clearInterval(dashboardTimer); dashboardTimer = null; }
   }
 
   function loadSaved() {
@@ -74,8 +174,12 @@
       if (Array.isArray(data?.courses)) {
         populateCourses(data.courses);
       }
+      // Load live dashboard after successful connection
+      loadDashboard();
+      startDashboardRefresh();
     } catch (err) {
       writeOut('connectOut', `Connection failed: ${err.message}`);
+      stopDashboardRefresh();
     }
   }
 
@@ -273,5 +377,11 @@
     el('btnSubmitQuiz').addEventListener('click', submitQuiz);
     el('btnHire').addEventListener('click', hire);
     capabilityEl.addEventListener('change', applyCapabilityTemplate);
+
+    // Auto-load dashboard if endpoint was previously saved
+    if (endpointEl.value.trim()) {
+      loadDashboard();
+      startDashboardRefresh();
+    }
   });
 })();

@@ -35,6 +35,7 @@
  *   POST /api/openclaw/course          — fetch one course with quiz options
  *   POST /api/openclaw/take-course     — submit quiz answers through authenticated JSON-RPC
  *   POST /api/openclaw/hire            — hire another Claw through authenticated JSON-RPC
+ *   POST /api/openclaw/status          — fetch live dashboard metrics from a Claw's /api/status
  *
  * Run: FAUCET_ROOT_KEY_HEX=<key> node faucet-server.js
  * The faucet also serves the static website files.
@@ -1337,6 +1338,22 @@ app.post('/api/openclaw/hire', async (req, res) => {
     }, 30000);
 
     res.json({ endpoint, result });
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    res.status(400).json({ error: msg });
+  }
+});
+
+app.post('/api/openclaw/status', async (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
+  if (!checkRateLimit(ip, 'openclaw-status', RATE_LIMIT_OPENCLAW_PROXY_PER_MIN)) {
+    return res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
+  }
+
+  try {
+    const endpoint = await normalizePublicEndpoint(req.body?.endpoint || '');
+    const status = await fetchOpenClawJson(`${endpoint}/api/status`, 12000);
+    res.json({ endpoint, ...status });
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
     res.status(400).json({ error: msg });
