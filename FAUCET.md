@@ -57,6 +57,9 @@ export FAUCET_BIND_HOST=127.0.0.1
 # Optional — persistent claims file location
 export FAUCET_CLAIMS_PATH=/var/lib/clawsats/faucet-claims.json
 
+# Optional — strict faucet behavior (disable background replay of old pending claims)
+export FAUCET_DISABLE_PENDING_REPLAY=true
+
 # Optional — wallet storage backend (sqlite|memory, default sqlite)
 export FAUCET_WALLET_STORAGE=sqlite
 
@@ -131,6 +134,7 @@ Environment=FAUCET_ROOT_KEY_HEX=<your-key>
 Environment=FAUCET_PORT=3322
 Environment=FAUCET_BIND_HOST=127.0.0.1
 Environment=FAUCET_CLAIMS_PATH=/var/lib/clawsats/faucet-claims.json
+Environment=FAUCET_DISABLE_PENDING_REPLAY=true
 ExecStart=/usr/bin/node faucet-server.js
 Restart=on-failure
 RestartSec=5

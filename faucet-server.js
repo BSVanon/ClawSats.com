@@ -76,6 +76,7 @@ const SCHOLARSHIP_ALLOW_LEGACY_P2PKH = String(process.env.SCHOLARSHIP_ALLOW_LEGA
 const SCHOLARSHIP_SUBMIT_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_SUBMIT_TIMEOUT_MS || '10000', 10);
 const SCHOLARSHIP_REMIT_RETRY_MS = parseInt(process.env.SCHOLARSHIP_REMIT_RETRY_MS || '60000', 10);
 const SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS || '12000', 10);
+const FAUCET_DISABLE_PENDING_REPLAY = String(process.env.FAUCET_DISABLE_PENDING_REPLAY || 'false').toLowerCase() === 'true';
 const TRUST_PROXY_HOPS = Math.max(0, parseInt(process.env.TRUST_PROXY_HOPS || '1', 10));
 const RATE_LIMIT_DRIP_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_DRIP_PER_MIN || '5', 10));
 const RATE_LIMIT_REGISTER_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_REGISTER_PER_MIN || '20', 10));
@@ -784,6 +785,7 @@ app.get('/api/faucet/status', async (req, res) => {
     walletBalance: balance,
     reserveForNextDrip,
     pendingClaims,
+    pendingReplayEnabled: !FAUCET_DISABLE_PENDING_REPLAY,
     walletError: walletError || null
   });
 });
@@ -1790,9 +1792,13 @@ app.get('*', (req, res) => {
 async function main() {
   await initWallet();
   if (walletReady) {
-    const replay = await settlePendingClaims(100);
-    if (replay.processed > 0) {
-      console.log(`[FAUCET] Pending claims replay: processed=${replay.processed} sent=${replay.sent} failed=${replay.failed} remaining=${replay.remaining}`);
+    if (!FAUCET_DISABLE_PENDING_REPLAY) {
+      const replay = await settlePendingClaims(100);
+      if (replay.processed > 0) {
+        console.log(`[FAUCET] Pending claims replay: processed=${replay.processed} sent=${replay.sent} failed=${replay.failed} remaining=${replay.remaining}`);
+      }
+    } else {
+      console.log('[FAUCET] Pending claims replay disabled (FAUCET_DISABLE_PENDING_REPLAY=true).');
     }
     const remitReplay = await replayScholarshipRemittances(100);
     if (remitReplay.processed > 0) {
@@ -1800,9 +1806,11 @@ async function main() {
     }
     setInterval(async () => {
       try {
-        const tick = await settlePendingClaims(25);
-        if (tick.processed > 0) {
-          console.log(`[FAUCET] Pending claims replay tick: processed=${tick.processed} sent=${tick.sent} failed=${tick.failed} remaining=${tick.remaining}`);
+        if (!FAUCET_DISABLE_PENDING_REPLAY) {
+          const tick = await settlePendingClaims(25);
+          if (tick.processed > 0) {
+            console.log(`[FAUCET] Pending claims replay tick: processed=${tick.processed} sent=${tick.sent} failed=${tick.failed} remaining=${tick.remaining}`);
+          }
         }
         const remitTick = await replayScholarshipRemittances(25);
         if (remitTick.processed > 0) {

@@ -61,6 +61,7 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 | `FAUCET_PORT` | No | Server port (default: 3322) |
 | `FAUCET_BIND_HOST` | No | Bind host (default: `127.0.0.1`, recommended behind nginx) |
 | `FAUCET_CLAIMS_PATH` | No | JSON path for persisted claims (default: `./faucet-claims.json`) |
+| `FAUCET_DISABLE_PENDING_REPLAY` | No | `true` = strict faucet mode (no background settlement of old pending claims) |
 | `FAUCET_WALLET_STORAGE` | No | `sqlite` (default) or `memory` |
 | `WOC_API_BASE` | No | WhatsOnChain API base (default: `https://api.whatsonchain.com/v1/bsv/main`) |
 | `TRUST_PROXY_HOPS` | No | Proxy hop count for real client IP extraction (default: `1`) |
