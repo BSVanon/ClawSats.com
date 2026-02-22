@@ -15,6 +15,7 @@
  *   FAUCET_ROOT_KEY_HEX  — 64-char hex private key for the faucet wallet (REQUIRED)
  *   FAUCET_PORT           — port (default 3322)
  *   SEED_CLAW_ENDPOINT    — URL of a running Claw for scholarship proxying (optional)
+ *   SPEND_AUDIT_PATH      — JSONL path for structured spend audit records (optional)
  *
  * Endpoints:
  *   GET  /api/faucet/status            — { claimed, limit, remaining, funded }
@@ -24,6 +25,7 @@
  *   GET  /api/scholarships/address     — BSV address for QR code donations
  *   GET  /api/scholarships/status      — { walletBalance, totalDistributed, eligibleClaws }
  *   POST /api/scholarships/distribute  — distribute wallet balance across eligible Claws
+ *   GET  /api/audit/spends             — recent structured spend audit records
  *   GET  /api/healthz                  — production health summary
  *   GET  /api/network/seed-peers       — list of known seed Claw endpoints
  *   GET  /api/network/dashboard        — proxied scholarship dashboard from seed Claw
@@ -77,6 +79,7 @@ const SCHOLARSHIP_SUBMIT_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_SUBMIT_TI
 const SCHOLARSHIP_REMIT_RETRY_MS = parseInt(process.env.SCHOLARSHIP_REMIT_RETRY_MS || '60000', 10);
 const SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS = parseInt(process.env.SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS || '12000', 10);
 const FAUCET_DISABLE_PENDING_REPLAY = String(process.env.FAUCET_DISABLE_PENDING_REPLAY || 'false').toLowerCase() === 'true';
+const SPEND_AUDIT_PATH = process.env.SPEND_AUDIT_PATH || path.join(__dirname, 'spend-audit.jsonl');
 const TRUST_PROXY_HOPS = Math.max(0, parseInt(process.env.TRUST_PROXY_HOPS || '1', 10));
 const RATE_LIMIT_DRIP_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_DRIP_PER_MIN || '5', 10));
 const RATE_LIMIT_REGISTER_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_REGISTER_PER_MIN || '20', 10));
@@ -132,6 +135,42 @@ function formatErr(err) {
   if (err && err.stack) return err.stack;
   if (err && err.message) return err.message;
   return String(err);
+}
+
+function writeSpendAudit(entry) {
+  const record = {
+    ts: new Date().toISOString(),
+    walletBackend,
+    ...entry
+  };
+  try {
+    fs.appendFileSync(SPEND_AUDIT_PATH, `${JSON.stringify(record)}\n`, 'utf8');
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn(`[SPEND] Failed to write audit file: ${msg}`);
+  }
+  console.log(`[SPEND] ${JSON.stringify(record)}`);
+}
+
+function readSpendAudit(limit = 100) {
+  const cap = Math.max(1, Math.min(1000, Number(limit) || 100));
+  try {
+    if (!fs.existsSync(SPEND_AUDIT_PATH)) return [];
+    const lines = fs.readFileSync(SPEND_AUDIT_PATH, 'utf8')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+    const slice = lines.slice(Math.max(0, lines.length - cap));
+    return slice.map(line => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 async function fetchApi(url, options = {}) {
@@ -523,7 +562,11 @@ function getPendingClaimEntries() {
   return Object.entries(db.claims).filter(([_, claim]) => isPendingClaim(claim));
 }
 
-async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats faucet drip') {
+async function sendDripToIdentityKey(
+  identityKey,
+  descriptionPrefix = 'ClawSats faucet drip',
+  spendReason = 'faucet-drip-request'
+) {
   const lockingScript = p2pkhFromPubkey(identityKey);
   try {
     const result = await faucetWallet.createAction({
@@ -542,6 +585,16 @@ async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats 
     });
     const txid = result.txid || null;
     const status = txid ? 'sent' : 'pending_broadcast';
+    if (txid) {
+      writeSpendAudit({
+        reason: spendReason,
+        identityKey,
+        satoshis: DRIP_AMOUNT,
+        txid,
+        status,
+        method: 'createAction'
+      });
+    }
     return { txid, status };
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
@@ -550,7 +603,18 @@ async function sendDripToIdentityKey(identityKey, descriptionPrefix = 'ClawSats 
       msg.toLowerCase().includes('needed')
     )) {
       console.warn('[FAUCET] createAction could not see spendable inputs in memory mode; trying direct P2PKH fallback path.');
-      return sendViaDirectP2PKHFallback(identityKey, DRIP_AMOUNT);
+      const fallback = await sendViaDirectP2PKHFallback(identityKey, DRIP_AMOUNT);
+      if (fallback?.txid) {
+        writeSpendAudit({
+          reason: spendReason,
+          identityKey,
+          satoshis: DRIP_AMOUNT,
+          txid: fallback.txid,
+          status: fallback.status || 'sent',
+          method: 'direct-p2pkh-fallback'
+        });
+      }
+      return fallback;
     }
     throw err;
   }
@@ -672,6 +736,17 @@ async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
 
   try {
     const ack = await submitScholarshipRemittance(remittance);
+    if (txid) {
+      writeSpendAudit({
+        reason: 'scholarship-distribution',
+        identityKey,
+        satoshis,
+        txid,
+        status: txid ? 'sent' : 'broadcast_pending',
+        endpoint: safeEndpoint,
+        internalizePending: false
+      });
+    }
     return {
       txid,
       status: txid ? 'sent' : 'broadcast_pending',
@@ -685,6 +760,17 @@ async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
     remittance.nextAttemptAt = Date.now() + SCHOLARSHIP_REMIT_RETRY_MS;
     remittance.updatedAt = new Date().toISOString();
     queueScholarshipRemittance(remittance);
+    if (txid) {
+      writeSpendAudit({
+        reason: 'scholarship-distribution',
+        identityKey,
+        satoshis,
+        txid,
+        status: txid ? 'sent_pending_internalize' : 'broadcast_pending_internalize',
+        endpoint: safeEndpoint,
+        internalizePending: true
+      });
+    }
     console.warn(`[SCHOLARSHIP] Internalize submit failed for ${identityKey.substring(0, 16)}... queued for retry: ${msg}`);
     return {
       txid,
@@ -717,7 +803,11 @@ async function settlePendingClaims(maxClaims = 50) {
       if (processed >= maxClaims) break;
       processed++;
       try {
-        const { txid, status } = await sendDripToIdentityKey(identityKey, 'ClawSats pending faucet drip');
+        const { txid, status } = await sendDripToIdentityKey(
+          identityKey,
+          'ClawSats pending faucet drip',
+          'faucet-pending-replay'
+        );
         claim.txid = txid;
         claim.status = status;
         claim.sentAt = new Date().toISOString();
@@ -1635,6 +1725,17 @@ app.get('/api/healthz', async (req, res) => {
     pendingInternalizations: scholarshipRemittances.pending.length,
     knownDirectoryEntries: Object.keys(directory).length,
     faucetClaims: db.count
+  });
+});
+
+// GET /api/audit/spends — recent spend records (newest last)
+app.get('/api/audit/spends', (req, res) => {
+  const limit = parseInt(String(req.query.limit || '100'), 10);
+  const rows = readSpendAudit(limit);
+  res.json({
+    count: rows.length,
+    limit: Math.max(1, Math.min(1000, Number(limit) || 100)),
+    spends: rows
   });
 });
 

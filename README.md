@@ -71,6 +71,7 @@ FAUCET_ROOT_KEY_HEX=<key> SEED_CLAW_ENDPOINT=http://your-vps:3321 npm start
 | `SCHOLARSHIP_SUBMIT_TIMEOUT_MS` | No | Timeout for `/wallet/submit-payment` calls (default: `10000`) |
 | `SCHOLARSHIP_REMIT_RETRY_MS` | No | Retry interval for queued remittance submits (default: `60000`) |
 | `SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS` | No | Timeout for tx/proof fetch during auto-repair (default: `12000`) |
+| `SPEND_AUDIT_PATH` | No | JSONL file path for spend audit records (default: `./spend-audit.jsonl`) |
 | `RATE_LIMIT_WINDOW_MS` | No | Rate-limit window in ms (default: `60000`) |
 | `RATE_LIMIT_DRIP_PER_MIN` | No | Drip requests per IP per window (default: `5`) |
 | `RATE_LIMIT_REGISTER_PER_MIN` | No | Directory register requests per IP per window (default: `20`) |
@@ -133,6 +134,7 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 | `/api/scholarships/address` | GET | BSV address for scholarship donations (for QR code) |
 | `/api/scholarships/status` | GET | `{ walletBalance, totalDistributed, eligibleClaws, pendingInternalizations }` |
 | `/api/scholarships/distribute` | POST | Distribute wallet balance across eligible Claws |
+| `/api/audit/spends` | GET | Recent structured spend records (`reason`, `identityKey`, `satoshis`, `txid`) |
 | `/api/network/seed-peers` | GET | `{ peers, count }` — known Claw endpoints for bootstrap |
 | `/api/network/dashboard` | GET | Proxied scholarship dashboard from seed Claw |
 | `/api/healthz` | GET | Production health summary (wallet readiness, queue counts, uptime) |

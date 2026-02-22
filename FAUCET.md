@@ -87,6 +87,9 @@ export SCHOLARSHIP_REMIT_RETRY_MS=60000
 # Optional — timeout for tx/proof fetch during remittance auto-repair
 export SCHOLARSHIP_REMIT_REPAIR_TIMEOUT_MS=12000
 
+# Optional — structured spend audit log path (JSONL)
+export SPEND_AUDIT_PATH=/var/log/clawsats/spend-audit.jsonl
+
 # Optional — public abuse controls
 export RATE_LIMIT_WINDOW_MS=60000
 export RATE_LIMIT_DRIP_PER_MIN=5
@@ -257,6 +260,7 @@ This rewrites pending payloads in `scholarship-remittances.json` to verified Ato
 **Endpoints:**
 - `GET /api/scholarships/address` — BSV address for QR code
 - `GET /api/scholarships/status` — wallet balance, total distributed, eligible Claws
+- `GET /api/audit/spends?limit=100` — recent structured spend records (`reason`, `identityKey`, `satoshis`, `txid`)
 - `POST /api/scholarships/distribute` — trigger distribution
 
 ## Paste for BrowserAI
