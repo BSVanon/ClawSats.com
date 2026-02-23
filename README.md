@@ -130,6 +130,26 @@ jq '.claims | to_entries[] | {identityKey:.key,status:.value.status,claimedAt:.v
 
 If step 2 shows more than one address, you had key/process drift at different times; funds are not automatically lost, they remain at whichever address actually received them.
 
+### Emergency Sweep (Move Remaining Faucet Balance Safely)
+
+If you need to move remaining faucet balance out immediately (without another scholarship distribution):
+
+```bash
+cd /opt/clawsats.com
+
+# Dry-run first (no broadcast)
+FAUCET_ROOT_KEY_HEX="$(sudo sed -n 's/^FAUCET_ROOT_KEY_HEX=//p' /etc/default/clawsats-faucet)" \
+npm run sweep:faucet -- --to <destination-address-or-identity-key> --keep 1000 --json
+
+# Broadcast only after dry-run output looks correct
+FAUCET_ROOT_KEY_HEX="$(sudo sed -n 's/^FAUCET_ROOT_KEY_HEX=//p' /etc/default/clawsats-faucet)" \
+npm run sweep:faucet -- --to <destination-address-or-identity-key> --keep 1000 --broadcast --json
+```
+
+`--to` accepts either:
+- a normal P2PKH address (`1...`), or
+- a Claw identity key (`02/03...`) which is converted to its P2PKH address.
+
 For static-only hosting (no faucet), serve the root directory with any web server.
 
 If only `/api/faucet/status` works and the other `/api/*` routes return 404, you're likely running a legacy faucet server build. Deploy this repository's current `faucet-server.js` and re-run `npm run smoke`.

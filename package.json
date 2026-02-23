@@ -9,6 +9,7 @@
     "smoke": "bash scripts/smoke-api.sh",
     "verify": "npm install && npm run smoke",
     "repair:remittances": "node scripts/repair-scholarship-remittances.js",
+    "sweep:faucet": "node scripts/sweep-faucet-balance.js",
     "preflight:prod": "bash scripts/preflight-prod.sh",
     "check:openclaw": "bash scripts/check-openclaw.sh"
   },

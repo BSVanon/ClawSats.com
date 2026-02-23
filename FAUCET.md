@@ -339,6 +339,27 @@ Interpretation:
 - `reason: scholarship-distribution` are scholarship payouts.
 - If balances exist on older addresses from the historical list, those sats are still on-chain for the old key; they did not vanish.
 
+### E) Emergency Sweep (recover remaining faucet balance)
+
+Use this when you want to remove remaining faucet funds without triggering scholarship distribution again.
+
+```bash
+cd /opt/clawsats.com
+
+# Dry-run (safe): inspect computed recipient/change/fee
+FAUCET_ROOT_KEY_HEX="$(sudo sed -n 's/^FAUCET_ROOT_KEY_HEX=//p' /etc/default/clawsats-faucet)" \
+npm run sweep:faucet -- --to <destination-address-or-identity-key> --keep 1000 --json
+
+# Broadcast after confirming dry-run numbers
+FAUCET_ROOT_KEY_HEX="$(sudo sed -n 's/^FAUCET_ROOT_KEY_HEX=//p' /etc/default/clawsats-faucet)" \
+npm run sweep:faucet -- --to <destination-address-or-identity-key> --keep 1000 --broadcast --json
+```
+
+Notes:
+- `--to` can be a P2PKH address (`1...`) or identity key (`02/03...`).
+- `--keep` leaves some sats in faucet for dust/operational reserve (set `0` to sweep all spendable minus fee).
+- This path bypasses scholarship eligibility logic and sends directly from faucet UTXOs.
+
 ## Paste for BrowserAI
 
 Copy this to BrowserAI for VPS setup:
