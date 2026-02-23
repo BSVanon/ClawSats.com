@@ -32,6 +32,8 @@ function usage(exitCode = 0) {
       '  --keep <sats>          Keep this amount in faucet address (default: 1000)',
       '  --fee-buffer <sats>    Extra fee headroom before exact fee calc (default: 3000)',
       '  --fee-rate <sat/kb>    Fee rate for tx.fee() (default: 1000)',
+      '  --max-inputs <n>       Limit number of UTXOs per tx (default: all)',
+      '  --min-utxo <sats>      Ignore UTXOs below this amount (default: 1)',
       '  --woc <url>            WhatsOnChain base URL',
       '  --broadcast            Broadcast tx (otherwise dry-run)',
       '  --json                 Print machine-readable JSON output',
@@ -51,6 +53,8 @@ function parseArgs(argv) {
     keep: DEFAULT_KEEP_SATS,
     feeBuffer: DEFAULT_FEE_BUFFER_SATS,
     feeRate: DEFAULT_FEE_RATE,
+    maxInputs: Number.POSITIVE_INFINITY,
+    minUtxo: 1,
     woc: DEFAULT_WOC_API_BASE,
     broadcast: false,
     json: false
@@ -64,6 +68,8 @@ function parseArgs(argv) {
     else if (a === '--keep') out.keep = Number(argv[++i]);
     else if (a === '--fee-buffer') out.feeBuffer = Number(argv[++i]);
     else if (a === '--fee-rate') out.feeRate = Number(argv[++i]);
+    else if (a === '--max-inputs') out.maxInputs = Number(argv[++i]);
+    else if (a === '--min-utxo') out.minUtxo = Number(argv[++i]);
     else if (a === '--woc') out.woc = String(argv[++i] || '').trim();
     else usage(1);
   }
@@ -71,6 +77,8 @@ function parseArgs(argv) {
   if (!Number.isFinite(out.keep) || out.keep < 0) throw new Error('Invalid --keep value.');
   if (!Number.isFinite(out.feeBuffer) || out.feeBuffer < 0) throw new Error('Invalid --fee-buffer value.');
   if (!Number.isFinite(out.feeRate) || out.feeRate <= 0) throw new Error('Invalid --fee-rate value.');
+  if (!Number.isFinite(out.maxInputs) || out.maxInputs <= 0) throw new Error('Invalid --max-inputs value.');
+  if (!Number.isFinite(out.minUtxo) || out.minUtxo < 1) throw new Error('Invalid --min-utxo value.');
   return out;
 }
 
@@ -151,22 +159,25 @@ async function main() {
       vout: u.tx_pos ?? u.vout ?? u.tx_output_n,
       satoshis: Number(u.value ?? u.satoshis ?? 0)
     }))
-    .filter(u => typeof u.txid === 'string' && Number.isInteger(u.vout) && u.satoshis > 0)
+    .filter(u => typeof u.txid === 'string' && Number.isInteger(u.vout) && u.satoshis >= args.minUtxo)
     .sort((a, b) => b.satoshis - a.satoshis);
 
   if (!baseUtxos.length) throw new Error('No spendable UTXOs for faucet address.');
 
   const tx = new Transaction();
-  const unlock = new P2PKH().unlock(priv);
+  const sourceLockHex = new P2PKH().lock(sourceAddress).toHex();
   let inputTotal = 0;
   let inputCount = 0;
+  const selectedInputs = [];
 
   for (const u of baseUtxos) {
+    if (inputCount >= args.maxInputs) break;
     const txhexRaw = await fetchApi(`${args.woc}/tx/${u.txid}/hex`);
     const txhex = parseWocTxHex(txhexRaw);
     const sourceTx = Transaction.fromHex(txhex);
     const out = sourceTx.outputs?.[u.vout];
     if (!out || !out.lockingScript) continue;
+    if (out.lockingScript.toHex() !== sourceLockHex) continue;
 
     tx.addInput(
       fromUtxo(
@@ -176,11 +187,16 @@ async function main() {
           satoshis: Number(out.satoshis || u.satoshis || 0),
           script: out.lockingScript.toHex()
         },
-        unlock
+        new P2PKH().unlock(priv)
       )
     );
     inputTotal += Number(out.satoshis || u.satoshis || 0);
     inputCount++;
+    selectedInputs.push({
+      txid: u.txid,
+      vout: u.vout,
+      satoshis: Number(out.satoshis || u.satoshis || 0)
+    });
   }
 
   if (inputCount === 0 || inputTotal <= 0) throw new Error('Unable to load spendable inputs.');
@@ -221,7 +237,10 @@ async function main() {
     changeSats,
     feePaid,
     keepTarget: args.keep,
-    feeRate: args.feeRate
+    feeRate: args.feeRate,
+    maxInputs: Number.isFinite(args.maxInputs) ? args.maxInputs : null,
+    minUtxo: args.minUtxo,
+    selectedInputs
   };
 
   if (!args.broadcast) {
@@ -259,4 +278,3 @@ main().catch((err) => {
   console.error(`[SWEEP] ${msg}`);
   process.exit(1);
 });
-
