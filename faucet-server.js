@@ -108,6 +108,8 @@ let walletError = null;
 let walletBackend = 'none';
 let settlingPendingClaims = false;
 let replayingScholarshipRemittances = false;
+let distributing = false;
+const p2pkhSpentUtxos = new Set(); // tracks txid:vout spent in this process lifetime (prevents double-spend in distribution loops)
 
 function getPkgVersion(name) {
   try {
@@ -353,7 +355,7 @@ function getBearerToken(req) {
 }
 
 function hasScholarshipDistributeAuth(req) {
-  if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) return true;
+  if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) return false;
   const headerToken = String(req.get('x-clawsats-admin-token') || '').trim();
   const bearerToken = getBearerToken(req);
   return (
@@ -1640,7 +1642,8 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, option
       vout: u.tx_pos ?? u.vout ?? u.tx_output_n,
       satoshis: Number(u.value ?? u.satoshis ?? 0)
     }))
-    .filter(u => typeof u.txid === 'string' && Number.isInteger(u.vout) && u.satoshis > 0)
+    .filter(u => typeof u.txid === 'string' && Number.isInteger(u.vout) && u.satoshis > 0 &&
+      !p2pkhSpentUtxos.has(`${u.txid}:${u.vout}`))
     .sort((a, b) => b.satoshis - a.satoshis);
 
   if (baseUtxos.length === 0) {
@@ -1667,7 +1670,7 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, option
   // Build a candidate tx with selected UTXOs until fee+output are covered.
   const tx = new Transaction();
   let inputTotal = 0;
-  let selected = 0;
+  const selectedUtxos = [];
   const targetFloor = satoshis + Math.max(1, DIRECT_SEND_FEE_BUFFER);
 
   for (const base of baseUtxos) {
@@ -1679,7 +1682,7 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, option
       script: u.script
     }, unlock));
     inputTotal += u.satoshis;
-    selected++;
+    selectedUtxos.push(u);
     if (inputTotal >= targetFloor) break;
   }
 
@@ -1707,11 +1710,16 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, option
     throw new Error(`Broadcast response missing txid: ${JSON.stringify(br).slice(0, 240)}`);
   }
 
+  // Mark inputs spent so concurrent/sequential sends don't double-spend unconfirmed UTXOs.
+  for (const u of selectedUtxos) {
+    p2pkhSpentUtxos.add(`${u.txid}:${u.vout}`);
+  }
+
   // Do not emit immediate AtomicBEEF from raw tx only; it may be missing proof.
   // Caller will rebuild a proof-backed payload from txid or queue for replay repair.
   const transaction = null;
 
-  console.log(`[FAUCET] Direct P2PKH fallback broadcast txid=${txid.substring(0, 16)}... inputs=${selected} totalIn=${inputTotal}`);
+  console.log(`[FAUCET] Direct P2PKH fallback broadcast txid=${txid.substring(0, 16)}... inputs=${selectedUtxos.length} totalIn=${inputTotal}`);
   return { txid, status: 'sent', transaction, txhex };
 }
 
@@ -1801,6 +1809,12 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     return res.status(503).json({ error: 'Faucet wallet not ready. Cannot distribute.' });
   }
 
+  if (distributing) {
+    return res.status(409).json({ error: 'Distribution already in progress. Try again shortly.' });
+  }
+  distributing = true;
+
+  try {
   // Check real wallet balance
   const balance = await getWalletBalance();
   // Reserve sats for pending claims only by default (or explicit env override).
@@ -1917,6 +1931,9 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     walletBalance: balance - distributed,
     message: `${distributed} sats distributed to ${results.length} Claws (${perClaw} sats each).`
   });
+  } finally {
+    distributing = false;
+  }
 });
 
 // --- Static file serving ---
@@ -1942,7 +1959,11 @@ app.get('*', (req, res) => {
 async function main() {
   await initWallet();
   if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) {
-    console.warn('[SCHOLARSHIP] ⚠️  SCHOLARSHIP_DISTRIBUTE_TOKEN not set: /api/scholarships/distribute is publicly callable.');
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[STARTUP] FATAL: SCHOLARSHIP_DISTRIBUTE_TOKEN must be set in production. Set it in .env and restart.');
+      process.exit(1);
+    }
+    console.warn('[SCHOLARSHIP] ⚠️  SCHOLARSHIP_DISTRIBUTE_TOKEN not set: /api/scholarships/distribute is unauthenticated.');
   }
   if (walletReady) {
     if (!FAUCET_DISABLE_PENDING_REPLAY) {
@@ -1976,7 +1997,7 @@ async function main() {
     }, 60_000).unref();
   }
 
-  app.listen(PORT, BIND_HOST, () => {
+  const server = app.listen(PORT, BIND_HOST, () => {
     console.log(`\n🦞 ClawSats Faucet + Website (mainnet)`);
     console.log(`   http://${BIND_HOST}:${PORT}`);
     console.log(`   Faucet: ${db.count}/${MAX_CLAIMS} claimed, ${DRIP_AMOUNT} sats/drip`);
@@ -1985,6 +2006,14 @@ async function main() {
     console.log(`   Status: GET /api/faucet/status`);
     console.log(`   Drip:   POST /api/faucet/drip { identityKey }`);
     console.log(`   Peers:  GET /api/network/seed-peers\n`);
+  });
+  server.on('error', err => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[STARTUP] Port ${PORT} already in use — is another instance running? Aborting.`);
+    } else {
+      console.error(`[STARTUP] Server listen error: ${err.message}`);
+    }
+    process.exit(1);
   });
 }
 
