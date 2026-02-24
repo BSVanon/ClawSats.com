@@ -1586,9 +1586,10 @@ async function replayScholarshipRemittances(maxToProcess = 25) {
 async function getWalletBalance() {
   if (!walletReady || !faucetWallet) return 0;
 
-  // In memory mode, toolbox output tracking may not include direct P2PKH external funding.
-  // Use chain index balance for the known faucet address to reflect real on-chain funds.
-  if (walletBackend === 'memory' && faucetAddress) {
+  // Toolbox output tracking does not include direct P2PKH external funding (UTXOs sent
+  // directly to the address without going through createAction/internalizeAction).
+  // Always use chain index balance for the known faucet address.
+  if (faucetAddress) {
     try {
       const data = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/balance`);
       const confirmed = Number(data.confirmed || 0);
