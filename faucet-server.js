@@ -719,15 +719,18 @@ async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
     transaction = extractActionTxBase64(result);
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
-    if (!(walletBackend === 'memory' && (
+    const isInsufficientFunds = (
       msg.toLowerCase().includes('insufficient funds') ||
-      msg.toLowerCase().includes('needed')
-    ))) {
+      msg.toLowerCase().includes('needed') ||
+      msg.toLowerCase().includes('no spendable') ||
+      msg.toLowerCase().includes('not enough')
+    );
+    if (!isInsufficientFunds) {
       throw err;
     }
-    // Bridge mode for legacy-funded wallets: spend address UTXOs directly,
+    // Bridge mode for externally-funded wallets: spend address UTXOs directly,
     // but still pay to a BRC-29 derived script so the recipient can internalize.
-    console.warn('[SCHOLARSHIP] createAction could not see spendable inputs in memory mode; trying direct legacy-input bridge with BRC-29 remittance.');
+    console.warn(`[SCHOLARSHIP] createAction could not see spendable inputs (${walletBackend} mode); trying direct legacy-input bridge with BRC-29 remittance.`);
     const direct = await sendViaDirectP2PKHFallback(identityKey, satoshis, { recipientScriptHex: lockingScript });
     txid = direct.txid || null;
     transaction = direct.transaction || null;
