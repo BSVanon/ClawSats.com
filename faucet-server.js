@@ -1589,43 +1589,47 @@ async function replayScholarshipRemittances(maxToProcess = 25) {
 async function getWalletBalance() {
   if (!walletReady || !faucetWallet) return 0;
 
-  // Toolbox output tracking does not include direct P2PKH external funding (UTXOs sent
-  // directly to the address without going through createAction/internalizeAction).
-  // Always use chain index balance for the known faucet address.
-  if (faucetAddress) {
-    try {
-      const data = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/balance`);
-      const confirmed = Number(data.confirmed || 0);
-      const unconfirmed = Number(data.unconfirmed || 0);
-      return Math.max(0, confirmed + unconfirmed);
-    } catch (err) {
-      console.warn(`[SCHOLARSHIP] WOC balance check failed: ${err.message}`);
-      // Fall through to toolbox listOutputs path below
-    }
-  }
+  // Two disjoint UTXO pools exist:
+  // 1. Toolbox-managed: change at BRC-29 derived addresses (from createAction sends)
+  // 2. External P2PKH: UTXOs sent directly to faucetAddress by humans
+  // Neither source sees the other's UTXOs, so we sum both for the true balance.
 
+  let toolboxBalance = 0;
+  let externalBalance = 0;
+
+  // Toolbox balance: derived change addresses + internalized outputs
   try {
     const outputs = await faucetWallet.listOutputs({
       basket: 'default',
       include: 'locking scripts',
       limit: 1000
     });
-    // Sum all spendable outputs
-    let total = 0;
     if (outputs && outputs.outputs) {
       for (const out of outputs.outputs) {
-        if (out.spendable !== false) total += (out.satoshis || 0);
+        if (out.spendable !== false) toolboxBalance += (out.satoshis || 0);
       }
     } else if (outputs && Array.isArray(outputs)) {
       for (const out of outputs) {
-        if (out.spendable !== false) total += (out.satoshis || 0);
+        if (out.spendable !== false) toolboxBalance += (out.satoshis || 0);
       }
     }
-    return total;
   } catch (err) {
-    console.warn(`[SCHOLARSHIP] Balance check failed: ${err.message}`);
-    return 0;
+    console.warn(`[WALLET] Toolbox listOutputs failed: ${err.message}`);
   }
+
+  // External balance: P2PKH UTXOs at the faucet address (human funding)
+  if (faucetAddress) {
+    try {
+      const data = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/balance`);
+      const confirmed = Number(data.confirmed || 0);
+      const unconfirmed = Number(data.unconfirmed || 0);
+      externalBalance = Math.max(0, confirmed + unconfirmed);
+    } catch (err) {
+      console.warn(`[WALLET] WOC balance check failed: ${err.message}`);
+    }
+  }
+
+  return toolboxBalance + externalBalance;
 }
 
 async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, options = {}) {
