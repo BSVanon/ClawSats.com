@@ -1379,6 +1379,7 @@ function loadFund() {
     }
   } catch {}
   return {
+    allocated: 0,
     totalDistributed: 0,
     distributions: [],
     lastBalanceCheck: 0,
@@ -1391,6 +1392,7 @@ function saveFund(fund) {
 }
 
 let fund = loadFund();
+if (fund.allocated == null) fund.allocated = 0;  // backfill for existing fund files
 
 const SCHOLARSHIP_REMIT_PATH = path.join(__dirname, 'scholarship-remittances.json');
 function loadScholarshipRemittances() {
@@ -1746,14 +1748,25 @@ app.get('/api/scholarships/address', (req, res) => {
   });
 });
 
-// GET /api/scholarships/status — fund status with real wallet balance
+// GET /api/scholarships/status — fund status with scholarship-specific balance
 app.get('/api/scholarships/status', async (req, res) => {
   const scholarship = getEligibleClaws();
   const balance = await getWalletBalance();
   fund.lastKnownBalance = balance;
   fund.lastBalanceCheck = Date.now();
 
+  // Scholarship remaining: budget minus distributed, capped at what the wallet can actually spend
+  const scholarshipBudget = Math.max(0, (fund.allocated || 0) - fund.totalDistributed);
+  const pendingClaims = getPendingClaimEntries().length;
+  const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
+  const reserveForFaucet = Math.max(FAUCET_MIN_RESERVE_SATS, reserveSlots * MIN_DRIP_SPENDABLE);
+  const walletAvailable = Math.max(0, balance - reserveForFaucet);
+  const scholarshipRemaining = Math.min(scholarshipBudget, walletAvailable);
+
   res.json({
+    scholarshipAllocated: fund.allocated || 0,
+    scholarshipDistributed: fund.totalDistributed,
+    scholarshipRemaining,
     walletBalance: balance,
     totalDistributed: fund.totalDistributed,
     totalDistributions: fund.distributions.length,
@@ -1766,6 +1779,33 @@ app.get('/api/scholarships/status', async (req, res) => {
     address: faucetAddress || null,
     chain: 'main',
     recentDistributions: fund.distributions.slice(-10).reverse()
+  });
+});
+
+// POST /api/scholarships/allocate — set or add to scholarship budget
+app.post('/api/scholarships/allocate', (req, res) => {
+  if (!hasScholarshipDistributeAuth(req)) {
+    return res.status(401).json({ error: 'Unauthorized.' });
+  }
+  const { add, set } = req.body || {};
+  if (set != null) {
+    const val = Math.max(0, Math.floor(Number(set)));
+    if (!Number.isFinite(val)) return res.status(400).json({ error: 'Invalid set value.' });
+    fund.allocated = val;
+  } else if (add != null) {
+    const val = Math.max(0, Math.floor(Number(add)));
+    if (!Number.isFinite(val)) return res.status(400).json({ error: 'Invalid add value.' });
+    fund.allocated = (fund.allocated || 0) + val;
+  } else {
+    return res.status(400).json({ error: 'Provide { "add": N } or { "set": N }.' });
+  }
+  saveFund(fund);
+  const remaining = Math.max(0, fund.allocated - fund.totalDistributed);
+  res.json({
+    allocated: fund.allocated,
+    totalDistributed: fund.totalDistributed,
+    remaining,
+    message: `Scholarship budget updated. ${remaining.toLocaleString()} sats available for distribution.`
   });
 });
 
@@ -1834,7 +1874,9 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   const scholarship = getEligibleClaws();
   const eligible = scholarship.eligible;
   const txFeeReserveTotal = eligible.length * Math.max(1, SCHOLARSHIP_TX_FEE_RESERVE);
-  const budgetForOutputs = Math.max(0, balance - reserveForFaucet - txFeeReserveTotal);
+  const walletBudget = balance - reserveForFaucet - txFeeReserveTotal;
+  const scholarshipBudget = (fund.allocated || 0) - fund.totalDistributed;
+  const budgetForOutputs = Math.max(0, Math.min(walletBudget, scholarshipBudget));
 
   if (eligible.length === 0) {
     const missing = scholarship.excludedMissingEndpoint + scholarship.excludedPlaceholderEndpoint;

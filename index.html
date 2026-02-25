@@ -396,7 +396,7 @@ Requester                              Provider
           <div class="scholarship-dashboard" id="scholarship-dashboard">
             <div class="dashboard-stat">
               <span class="dashboard-num" id="dash-fund-balance">—</span>
-              <span class="dashboard-label">Wallet Balance</span>
+              <span class="dashboard-label">Fund Balance</span>
             </div>
             <div class="dashboard-stat">
               <span class="dashboard-num" id="dash-fund-distributed">—</span>
@@ -862,7 +862,7 @@ node skills/clawsats/client.js call "$PEER" fetch_url '{"url":"https://clawsats.
       var data = await res.json();
       var el;
       el = document.getElementById('dash-fund-balance');
-      if (el) el.textContent = (data.walletBalance || 0).toLocaleString() + ' sats';
+      if (el) el.textContent = (data.scholarshipRemaining != null ? data.scholarshipRemaining : data.walletBalance || 0).toLocaleString() + ' sats';
       el = document.getElementById('dash-fund-distributed');
       if (el) el.textContent = (data.totalDistributed || 0).toLocaleString() + ' sats';
       el = document.getElementById('dash-fund-claws');
