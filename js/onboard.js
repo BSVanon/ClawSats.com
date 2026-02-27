@@ -466,6 +466,65 @@
     }
   }
 
+  // ── Activity feed (rich, filterable) ────────────────────────
+
+  let feedFilter = 'all';
+
+  function classifyFeedType(source, type) {
+    if (source === 'earning' || type === 'earn' || type === 'payment_received') return 'earn';
+    if (source === 'spending' || type === 'spend' || type === 'hire' || type === 'payment_sent') return 'spend';
+    if (source === 'peer' || source === 'network' || type === 'peer_discovered' || type === 'peer_stale') return 'peer';
+    if (source === 'brain' || type === 'decision' || type === 'brain_job') return 'brain';
+    return 'system';
+  }
+
+  function renderActivityFeed(d) {
+    const feedEl = el('overviewFeed');
+    if (!feedEl) return;
+    const feed = d.activityFeed || [];
+    if (feed.length === 0) {
+      feedEl.innerHTML = '<li class="mc-feed-item" style="color:var(--muted)">No activity yet.</li>';
+      return;
+    }
+
+    const items = feed.map(e => {
+      const cls = classifyFeedType(e.source, e.type);
+      return { cls: cls, e: e };
+    });
+
+    const filtered = feedFilter === 'all' ? items : items.filter(i => i.cls === feedFilter);
+
+    feedEl.innerHTML = filtered.map(({ cls, e }) => {
+      const time = (e.ts || '').substring(11, 19);
+      const msg = (e.type || '') + (e.capability ? ' ' + e.capability : '');
+      let satsHtml = '';
+      if (e.sats) {
+        const isPos = cls === 'earn';
+        satsHtml = '<span class="mc-feed-sats ' + (isPos ? 'mc-feed-sats--pos' : 'mc-feed-sats--neg') + '">' +
+          (isPos ? '+' : '-') + fmt(e.sats) + '</span>';
+      }
+      return '<li class="mc-feed-item" data-type="' + cls + '">' +
+        '<span class="mc-feed-type mc-feed-type--' + cls + '">' + cls + '</span>' +
+        '<span class="mc-feed-time">' + time + '</span>' +
+        '<span class="mc-feed-msg">' + msg + '</span>' +
+        satsHtml + '</li>';
+    }).join('');
+  }
+
+  function initFeedFilters() {
+    const wrap = el('feedFilters');
+    if (!wrap) return;
+    wrap.addEventListener('click', function(ev) {
+      const btn = ev.target.closest('.mc-feed-filter');
+      if (!btn) return;
+      wrap.querySelectorAll('.mc-feed-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      feedFilter = btn.dataset.filter;
+      if (statusData) renderActivityFeed(statusData);
+      else if (connectData) renderActivityFeed(connectData);
+    });
+  }
+
   // ── Overview tab ─────────────────────────────────────────────
 
   function renderOverview(d) {
@@ -489,18 +548,8 @@
     ).join('');
     el('overviewCaps').querySelector('tbody').innerHTML = tbody || '<tr><td colspan="4" style="color:var(--muted)">No capabilities</td></tr>';
 
-    // Activity feed
-    const feed = d.activityFeed || [];
-    if (feed.length > 0) {
-      el('overviewFeed').textContent = feed.map(e => {
-        const time = (e.ts || '').substring(11, 19);
-        const sats = e.sats ? ' (' + e.sats + ' sats)' : '';
-        return time + ' [' + (e.source || '?') + '] ' + (e.type || '') + sats +
-               (e.capability ? ' ' + e.capability : '');
-      }).join('\n');
-    } else {
-      el('overviewFeed').textContent = 'No activity yet.';
-    }
+    // Activity feed (rich)
+    renderActivityFeed(d);
 
     // UTXO health bar
     renderUtxoBar(d);
@@ -548,16 +597,38 @@
     el('ss-mining').textContent = fmt(econ.miningFeesPaid || 0);
 
     const hires = hiring.recentHires || [];
-    const rows = hires.map(h =>
-      '<tr><td>' + (h.capability || '-') + '</td>' +
-      '<td>' + short(h.peerIdentity || '-', 16) + '</td>' +
-      '<td class="num">' + fmt(h.costSats || 0) + '</td>' +
-      '<td>' + ago(h.timestamp) + '</td></tr>'
-    ).join('');
-    el('spendingTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="4" style="color:var(--muted)">No hires yet</td></tr>';
+    const total = hires.length;
+    const successes = hires.filter(h => !h.error && h.status !== 'failed').length;
+    el('ss-success').textContent = total > 0 ? Math.round((successes / total) * 100) + '%' : '-';
+
+    const rows = hires.map(h => {
+      const ok = !h.error && h.status !== 'failed';
+      const badge = ok
+        ? '<span class="cp-badge cp-badge-ok">OK</span>'
+        : '<span class="cp-badge cp-badge-err">' + short(h.error || 'Failed', 20) + '</span>';
+      return '<tr><td>' + (h.capability || '-') + '</td>' +
+        '<td>' + short(h.peerIdentity || '-', 16) + '</td>' +
+        '<td class="num">' + fmt(h.costSats || 0) + '</td>' +
+        '<td>' + badge + '</td>' +
+        '<td>' + ago(h.timestamp) + '</td></tr>';
+    }).join('');
+    el('spendingTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="5" style="color:var(--muted)">No hires yet</td></tr>';
   }
 
   // ── Network tab ──────────────────────────────────────────────
+
+  function repColor(rep) {
+    if (rep >= 70) return '#27c93f';
+    if (rep >= 40) return '#f5a623';
+    return '#e63946';
+  }
+
+  function repBar(rep) {
+    const r = Math.max(0, Math.min(100, rep || 0));
+    return '<span class="mc-rep-bar">' +
+      '<span class="mc-rep-track"><span class="mc-rep-fill" style="width:' + r + '%;background:' + repColor(r) + '"></span></span>' +
+      '<span style="font-size:.75rem;color:' + repColor(r) + '">' + r + '</span></span>';
+  }
 
   function renderNetwork(d) {
     const net = d.network || {};
@@ -568,10 +639,18 @@
     el('ns-new').textContent = fmt(net.newPeersThisWeek || 0);
     el('ns-total').textContent = fmt(peers.length);
 
+    // Avg reputation
+    if (peers.length > 0) {
+      const avg = peers.reduce((s, p) => s + (p.reputation || 0), 0) / peers.length;
+      el('ns-avgrep').textContent = avg.toFixed(0);
+    } else {
+      el('ns-avgrep').textContent = '-';
+    }
+
     const rows = peers.slice(0, 30).map(p =>
       '<tr><td>' + copyable(p.identityKey, 16) + '</td>' +
       '<td>' + copyable(p.endpoint, 35) + '</td>' +
-      '<td class="num">' + (p.reputation || 0) + '</td>' +
+      '<td class="num">' + repBar(p.reputation) + '</td>' +
       '<td>' + ago(p.lastSeenAt) + '</td></tr>'
     ).join('');
     const more = peers.length > 30 ? '<tr><td colspan="4" style="color:var(--muted)">...and ' + (peers.length - 30) + ' more</td></tr>' : '';
@@ -589,6 +668,32 @@
     el('bs-approval').textContent = fmt(brain.needsApproval || 0);
     el('bs-auto').textContent = fmt(brain.autoApproved || 0);
     el('bs-conf').textContent = brain.avgConfidence || '-';
+
+    // Pending approvals
+    const approvals = brain.pendingApprovals || [];
+    const approvalCard = el('brainApprovalCard');
+    if (approvalCard) {
+      if (approvals.length > 0 || (brain.needsApproval || 0) > 0) {
+        approvalCard.style.display = '';
+        el('approvalCount').textContent = approvals.length || brain.needsApproval || 0;
+        if (approvals.length > 0) {
+          el('brainApprovals').innerHTML = approvals.map(a =>
+            '<div class="mc-approval-item">' +
+            '<span class="cp-badge cp-badge-warn">' + (a.tool || a.action || 'gated') + '</span> ' +
+            '<span style="flex:1;font-size:.82rem;">' + short(a.reason || a.description || 'Pending approval', 60) + '</span>' +
+            '<div class="mc-approval-actions">' +
+            '<button class="mc-approval-btn mc-approval-btn--approve" data-job="' + (a.jobId || a.id || '') + '" data-action="approve">Approve</button>' +
+            '<button class="mc-approval-btn mc-approval-btn--reject" data-job="' + (a.jobId || a.id || '') + '" data-action="reject">Reject</button>' +
+            '</div></div>'
+          ).join('');
+        } else {
+          el('brainApprovals').innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:.4rem;">' +
+            (brain.needsApproval || 0) + ' actions pending (details not available via API yet)</div>';
+        }
+      } else {
+        approvalCard.style.display = 'none';
+      }
+    }
 
     // Circuit breakers
     const breakers = brain.circuitBreakers || [];
@@ -620,6 +725,24 @@
     }
   }
 
+  // ── Brain approval actions ─────────────────────────────────
+
+  async function handleBrainApproval(jobId, action) {
+    const endpoint = el('endpoint').value.trim();
+    const apiKey = el('apiKey').value.trim();
+    if (!endpoint || !apiKey) {
+      showToast('API key required for approvals');
+      return;
+    }
+    try {
+      await postJSON('/api/openclaw/brain/' + action, { endpoint, apiKey, jobId });
+      showToast(action === 'approve' ? 'Approved' : 'Rejected');
+      loadDashboard();
+    } catch (err) {
+      showToast('Failed: ' + err.message);
+    }
+  }
+
   // ── Memory tab ───────────────────────────────────────────────
 
   function renderMemory(d) {
@@ -627,10 +750,28 @@
     el('ms-records').textContent = fmt(mem.totalMemories || 0);
     el('ms-index').textContent = mem.masterIndexTxid ? 'Yes' : 'No';
 
+    // Backend type
+    const backend = mem.backend || 'local';
+    el('ms-backend').textContent = backend;
+
+    // Sync status badge
+    const syncEl = el('ms-sync');
+    if (syncEl) {
+      const ind = d.indelible;
+      if (ind && ind.enabled) {
+        const synced = mem.synced !== false;
+        syncEl.innerHTML = '<span class="mc-sync-badge ' + (synced ? 'mc-sync-badge--ok' : 'mc-sync-badge--warn') + '">' +
+          (synced ? 'Synced' : 'Behind') + '</span>';
+      } else {
+        syncEl.innerHTML = '<span class="mc-sync-badge mc-sync-badge--off">Local only</span>';
+      }
+    }
+
     const lines = [];
     lines.push('Total records: ' + fmt(mem.totalMemories || 0));
     if (mem.masterIndexTxid) lines.push('Master index TXID: ' + mem.masterIndexTxid);
-    if (mem.backend) lines.push('Backend: ' + mem.backend);
+    lines.push('Backend: ' + backend);
+    if (mem.lastWriteAt) lines.push('Last write: ' + ago(mem.lastWriteAt));
     if (mem.keys) lines.push('Keys: ' + (Array.isArray(mem.keys) ? mem.keys.join(', ') : mem.keys));
     el('memoryDetails').textContent = lines.join('\n') || 'No memory data.';
 
@@ -643,8 +784,22 @@
   function renderEducation(d) {
     const edu = d.education || {};
     const completed = edu.coursesCompleted || [];
+    const available = edu.coursesAvailable || 0;
     el('edu-completed').textContent = fmt(completed.length);
-    el('edu-available').textContent = fmt(edu.coursesAvailable || 0);
+    el('edu-available').textContent = fmt(available);
+
+    // Teaching stats
+    el('edu-taught').textContent = fmt(edu.quizzesServed || 0);
+    const attempts = edu.quizAttempts || 0;
+    const passes = edu.quizPasses || 0;
+    el('edu-passrate').textContent = attempts > 0 ? Math.round((passes / attempts) * 100) + '%' : '-';
+
+    // Progress bar
+    const pct = available > 0 ? Math.round((completed.length / available) * 100) : 0;
+    el('edu-progress-label').textContent = completed.length + ' / ' + available + ' completed';
+    el('edu-progress-pct').textContent = pct + '%';
+    const bar = el('edu-progress-bar');
+    if (bar) bar.style.width = pct + '%';
   }
 
   // ── Diagnostics tab ──────────────────────────────────────────
@@ -1091,7 +1246,15 @@
     loadSaved();
     initTabs();
     initPipelineClicks();
+    initFeedFilters();
     applyCapabilityTemplate();
+
+    // Brain approval delegation
+    document.addEventListener('click', function(ev) {
+      const btn = ev.target.closest('.mc-approval-btn');
+      if (!btn) return;
+      handleBrainApproval(btn.dataset.job, btn.dataset.action);
+    });
 
     el('btnConnect').addEventListener('click', connect);
     el('btnTestHealth').addEventListener('click', testHealth);

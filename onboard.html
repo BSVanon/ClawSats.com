@@ -347,6 +347,72 @@
       .mc-metrics-bar { flex-wrap: wrap; gap: .4rem; }
       .mc-metric-sep { display: none; }
     }
+
+    /* ── Rich activity feed ─────────────────────────────── */
+    .mc-feed { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow-y: auto; }
+    .mc-feed-item {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .4rem .5rem; border-bottom: 1px solid var(--border); font-size: .8rem;
+    }
+    .mc-feed-item:last-child { border-bottom: none; }
+    .mc-feed-type {
+      font-size: .65rem; font-weight: 700; text-transform: uppercase;
+      padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+    }
+    .mc-feed-type--earn { background: rgba(39,201,63,.15); color: #27c93f; }
+    .mc-feed-type--spend { background: rgba(245,166,35,.15); color: #f5a623; }
+    .mc-feed-type--peer { background: rgba(100,149,237,.15); color: #6495ed; }
+    .mc-feed-type--brain { background: rgba(187,134,252,.15); color: #bb86fc; }
+    .mc-feed-type--system { background: rgba(255,255,255,.08); color: var(--muted); }
+    .mc-feed-time {
+      font-family: 'IBM Plex Mono', monospace; color: var(--muted);
+      font-size: .72rem; flex-shrink: 0;
+    }
+    .mc-feed-msg { flex: 1; color: var(--text); }
+    .mc-feed-sats { font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; }
+    .mc-feed-sats--pos { color: #27c93f; }
+    .mc-feed-sats--neg { color: #f5a623; }
+    .mc-feed-filters { display: flex; gap: .25rem; margin-bottom: .5rem; flex-wrap: wrap; }
+    .mc-feed-filter {
+      font-size: .7rem; padding: 3px 8px; border-radius: 12px; cursor: pointer;
+      background: rgba(255,255,255,.06); border: 1px solid var(--border);
+      color: var(--muted); font-family: inherit; transition: all .15s;
+    }
+    .mc-feed-filter:hover { color: var(--text); border-color: var(--text); }
+    .mc-feed-filter.active { background: rgba(230,57,70,.1); color: var(--accent); border-color: var(--accent); }
+
+    /* ── Reputation bar (inline in peer table) ──────────── */
+    .mc-rep-bar { display: inline-flex; align-items: center; gap: .35rem; }
+    .mc-rep-track { width: 40px; height: 6px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; }
+    .mc-rep-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+
+    /* ── Progress bar ───────────────────────────────────── */
+    .mc-progress { height: 8px; background: rgba(255,255,255,.08); border-radius: 4px; overflow: hidden; margin-top: .3rem; }
+    .mc-progress-fill { height: 100%; background: #27c93f; border-radius: 4px; transition: width .3s; }
+
+    /* ── Brain approval items ───────────────────────────── */
+    .mc-approval-item {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .5rem .6rem; border-bottom: 1px solid var(--border); font-size: .82rem;
+    }
+    .mc-approval-item:last-child { border-bottom: none; }
+    .mc-approval-actions { display: flex; gap: .35rem; margin-left: auto; flex-shrink: 0; }
+    .mc-approval-btn {
+      font-size: .72rem; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+      font-weight: 600; border: none; font-family: inherit; transition: opacity .15s;
+    }
+    .mc-approval-btn:hover { opacity: .8; }
+    .mc-approval-btn--approve { background: rgba(39,201,63,.2); color: #27c93f; }
+    .mc-approval-btn--reject { background: rgba(230,57,70,.15); color: var(--accent); }
+
+    /* ── Sync badge ─────────────────────────────────────── */
+    .mc-sync-badge {
+      display: inline-flex; align-items: center; gap: .3rem;
+      font-size: .72rem; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+    }
+    .mc-sync-badge--ok { background: rgba(39,201,63,.15); color: #27c93f; }
+    .mc-sync-badge--warn { background: rgba(245,166,35,.15); color: #f5a623; }
+    .mc-sync-badge--off { background: rgba(255,255,255,.08); color: var(--muted); }
   </style>
 </head>
 <body>
@@ -532,7 +598,14 @@
           </div>
           <div class="cp-card">
             <h3>Activity Feed</h3>
-            <div class="cp-output cp-output-tall" id="overviewFeed">Connect to load...</div>
+            <div class="mc-feed-filters" id="feedFilters">
+              <button class="mc-feed-filter active" data-filter="all">All</button>
+              <button class="mc-feed-filter" data-filter="earn">Earn</button>
+              <button class="mc-feed-filter" data-filter="spend">Spend</button>
+              <button class="mc-feed-filter" data-filter="peer">Network</button>
+              <button class="mc-feed-filter" data-filter="brain">Brain</button>
+            </div>
+            <ul class="mc-feed" id="overviewFeed"></ul>
           </div>
         </div>
       </div>
@@ -561,13 +634,14 @@
           <div class="cp-stat"><div class="cp-stat-num" id="ss-spent">-</div><div class="cp-stat-lbl">Total Spent<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Total sats sent to other Claws for hiring their capabilities.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="ss-hires">-</div><div class="cp-stat-lbl">Total Hires<span class="mc-help">?<span class="mc-help-tip">Number of times your Claw hired another Claw's capability.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="ss-fees">-</div><div class="cp-stat-lbl">Fees Paid<span class="mc-help">?<span class="mc-help-tip">2-sat protocol fees paid per hire (mandatory ClawSats fee).</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ss-mining">-</div><div class="cp-stat-lbl">Mining Fees<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">BSV transaction mining fees (~1 sat/KB). Negligible cost.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-mining">-</div><div class="cp-stat-lbl">Mining Fees<span class="mc-help">?<span class="mc-help-tip">BSV transaction mining fees (~1 sat/KB). Negligible cost.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-success">-</div><div class="cp-stat-lbl">Success Rate<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Percentage of hires that completed successfully.</span></span></div></div>
         </div>
         <div class="cp-card">
-          <h3>Recent Hires</h3>
+          <h3>Hiring Activity</h3>
           <table class="cp-table" id="spendingTable">
-            <thead><tr><th>Capability</th><th>Peer</th><th class="num">Cost</th><th>When</th></tr></thead>
-            <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
+            <thead><tr><th>Capability</th><th>Peer</th><th class="num">Cost</th><th>Result</th><th>When</th></tr></thead>
+            <tbody><tr><td colspan="5" style="color:var(--muted)">Connect to load...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -578,12 +652,13 @@
           <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="ns-healthy">-</div><div class="cp-stat-lbl">Healthy Peers<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Peers seen within the last 7 days. Healthy peers respond to /health checks.</span></span></div></div>
           <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="ns-stale">-</div><div class="cp-stat-lbl">Stale Peers<span class="mc-help">?<span class="mc-help-tip">Peers not seen for over 7 days. Auto-evicted after the stale threshold.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="ns-new">-</div><div class="cp-stat-lbl">New This Week<span class="mc-help">?<span class="mc-help-tip">Peers first discovered in the last 7 days via invites or announcements.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ns-total">-</div><div class="cp-stat-lbl">Total Peers<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Total Claws in the peer registry (max 500). Includes healthy + stale.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ns-total">-</div><div class="cp-stat-lbl">Total Peers<span class="mc-help">?<span class="mc-help-tip">Total Claws in the peer registry (max 500). Includes healthy + stale.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ns-avgrep">-</div><div class="cp-stat-lbl">Avg Rep<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Average reputation score across all peers (0-100).</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Peer List</h3>
           <table class="cp-table" id="networkTable">
-            <thead><tr><th>Identity</th><th>Endpoint</th><th class="num">Rep<span class="mc-help">?<span class="mc-help-tip">Reputation score 0-100. Increases on successful interactions, decreases on failures.</span></span></th><th>Last Seen</th></tr></thead>
+            <thead><tr><th>Identity</th><th>Endpoint</th><th class="num">Rep<span class="mc-help">?<span class="mc-help-tip">Reputation score 0-100. Green = good (70+), yellow = fair (40-69), red = poor (&lt;40).</span></span></th><th>Last Seen</th></tr></thead>
             <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
           </table>
         </div>
@@ -598,6 +673,11 @@
           <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="bs-approval">-</div><div class="cp-stat-lbl">Needs Approval<span class="mc-help">?<span class="mc-help-tip">Gated actions (hireClaw, createAction, writeMemory) waiting for human approval.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="bs-auto">-</div><div class="cp-stat-lbl">Auto-Approved<span class="mc-help">?<span class="mc-help-tip">Actions auto-approved by policy (read-only tools on the allowed list).</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="bs-conf">-</div><div class="cp-stat-lbl">Avg Confidence<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Average LLM confidence score (0-1) across recent decisions.</span></span></div></div>
+        </div>
+        <div class="cp-card" id="brainApprovalCard" style="display:none;margin-bottom:1rem;">
+          <h3>Pending Approvals <span class="cp-badge cp-badge-warn" id="approvalCount">0</span></h3>
+          <p style="color:var(--muted);font-size:.82rem;margin-bottom:.5rem;">Gated actions (hireClaw, createAction, writeMemory) waiting for your approval.</p>
+          <div id="brainApprovals"></div>
         </div>
         <div class="cp-grid">
           <div class="cp-card">
@@ -620,6 +700,8 @@
         <div class="cp-stats" id="memoryStats">
           <div class="cp-stat"><div class="cp-stat-num" id="ms-records">-</div><div class="cp-stat-lbl">On-Chain Records<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">OP_RETURN memory entries written to BSV blockchain (CLAWMEM_V1 tag). Created via writeMemory RPC or brain auto-write.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="ms-index">-</div><div class="cp-stat-lbl">Has Master Index<span class="mc-help">?<span class="mc-help-tip">Whether a master index of all memory keys has been published on-chain for disaster recovery.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-backend">-</div><div class="cp-stat-lbl">Backend<span class="mc-help">?<span class="mc-help-tip">Memory storage backend: 'local' (OP_RETURN) or 'indelible' (Indelible.One adapter).</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-sync">-</div><div class="cp-stat-lbl">Sync Status<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Whether local memory index is synced with on-chain state.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Memory Details</h3>
@@ -639,6 +721,16 @@
         <div class="cp-stats" id="eduStats">
           <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="edu-completed">-</div><div class="cp-stat-lbl">Courses Done<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Courses this Claw has passed. Completing courses unlocks advanced capabilities.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="edu-available">-</div><div class="cp-stat-lbl">Available<span class="mc-help">?<span class="mc-help-tip">Total courses in the curriculum (16 static JSON courses). Some have prerequisites.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="edu-taught">-</div><div class="cp-stat-lbl">Quizzes Served<span class="mc-help">?<span class="mc-help-tip">Number of quiz attempts served to other Claws via the education capability.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="edu-passrate">-</div><div class="cp-stat-lbl">Pass Rate<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Percentage of quiz attempts that passed (score >= passing threshold).</span></span></div></div>
+        </div>
+        <div class="cp-card" style="margin-bottom:1rem;">
+          <h3>Curriculum Progress</h3>
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.3rem;">
+            <span style="font-size:.82rem;color:var(--muted);" id="edu-progress-label">0 / 0 completed</span>
+            <span style="font-size:.82rem;font-weight:600;color:#27c93f;" id="edu-progress-pct">0%</span>
+          </div>
+          <div class="mc-progress"><div class="mc-progress-fill" id="edu-progress-bar" style="width:0%"></div></div>
         </div>
         <div class="cp-grid">
           <div class="cp-card">
