@@ -215,6 +215,19 @@
     }
     .mc-subtab-group { display: none; gap: .25rem; }
     .mc-subtab-group.active { display: flex; }
+    .mc-subtab-group .cp-tab {
+      color: rgba(255,255,255,.55); font-weight: 600;
+      position: relative; padding-bottom: .65rem;
+    }
+    .mc-subtab-group .cp-tab::after {
+      content: ''; position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%);
+      width: 0; height: 2px; background: var(--accent);
+      border-radius: 1px; transition: width .2s;
+    }
+    .mc-subtab-group .cp-tab:hover { color: rgba(255,255,255,.85); }
+    .mc-subtab-group .cp-tab:hover::after { width: 60%; }
+    .mc-subtab-group .cp-tab.active { color: var(--accent); }
+    .mc-subtab-group .cp-tab.active::after { width: 100%; }
 
     /* ── Indelible notice ────────────────────────────────── */
     .mc-indelible-notice {
@@ -228,6 +241,49 @@
     }
     .mc-indelible-notice p { margin: 0; line-height: 1.5; }
     .mc-notice-icon { fill: var(--accent); flex-shrink: 0; margin-top: 2px; }
+    .mc-indelible-notice .mc-notice-upgrade {
+      margin-left: auto; flex-shrink: 0; align-self: center;
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .45rem 1rem; background: rgba(230,57,70,.1);
+      border: 1px solid rgba(230,57,70,.3); border-radius: 6px;
+      color: var(--accent); font-size: .82rem; font-weight: 600;
+      text-decoration: none; transition: background .15s, border-color .15s;
+      white-space: nowrap;
+    }
+    .mc-indelible-notice .mc-notice-upgrade:hover {
+      background: rgba(230,57,70,.18); border-color: var(--accent);
+    }
+
+    /* ── Help tooltips ──────────────────────────────────── */
+    .mc-help {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+      color: var(--muted); font-size: .6rem; font-weight: 700;
+      cursor: help; position: relative; vertical-align: middle;
+      margin-left: .3rem; flex-shrink: 0; line-height: 1;
+      transition: background .15s, color .15s;
+    }
+    .mc-help:hover { background: rgba(230,57,70,.15); color: var(--accent); border-color: rgba(230,57,70,.4); }
+    .mc-help-tip {
+      display: none; position: absolute; bottom: calc(100% + 8px); left: 50%;
+      transform: translateX(-50%); width: max-content; max-width: 280px;
+      padding: .5rem .65rem; background: #1a1f2e; border: 1px solid var(--border);
+      border-radius: 8px; font-size: .75rem; font-weight: 400; color: var(--text);
+      line-height: 1.45; z-index: 100; pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      white-space: normal; text-align: left;
+    }
+    .mc-help-tip::after {
+      content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      border: 5px solid transparent; border-top-color: #1a1f2e;
+    }
+    .mc-help:hover .mc-help-tip { display: block; }
+    /* Keep tooltip on screen for items near edges */
+    .mc-help-tip--left { left: 0; transform: none; }
+    .mc-help-tip--left::after { left: 10px; transform: none; }
+    .mc-help-tip--right { left: auto; right: 0; transform: none; }
+    .mc-help-tip--right::after { left: auto; right: 10px; transform: none; }
 
     @media (max-width: 768px) {
       .mc-header-top { flex-direction: column; align-items: flex-start; gap: .35rem; }
@@ -255,11 +311,14 @@
     <div class="nav-inner">
       <a href="/" class="nav-logo" aria-label="ClawSats home">
         <img src="/assets/clawsats-no-text.svg" alt="" class="nav-logo-mark">
-        <img src="/assets/clawsats-text.svg" alt="ClawSats" class="nav-logo-wordmark">
+        <span style="font-weight:700;font-size:1.15rem;letter-spacing:-.02em;">Mission Control</span>
       </a>
-      <div class="nav-links">
-        <a href="/">Website</a>
-        <a href="/onboard.html" class="btn btn-sm">Mission Control</a>
+      <div class="nav-links" style="display:flex;align-items:center;gap:1rem;">
+        <div class="mc-header-status" id="headerStatus" style="display:flex;align-items:center;gap:.45rem;font-size:.82rem;color:var(--muted);">
+          <span class="mc-status-dot mc-status-dot--off" id="headerDot"></span>
+          <span id="connectStatusText">Disconnected</span>
+        </div>
+        <a href="/">Home</a>
       </div>
     </div>
   </nav>
@@ -268,46 +327,39 @@
     <div class="cp-wrap">
       <!-- Mission Control Header -->
       <div class="mc-header">
-        <div class="mc-header-top">
-          <div class="mc-header-title">
-            <img src="/assets/clawsats-no-text.svg" alt="" class="mc-logo-mark">
-            <h1>Mission Control</h1>
-          </div>
-          <div class="mc-header-status" id="headerStatus">
-            <span class="mc-status-dot mc-status-dot--off" id="headerDot"></span>
-            <span id="connectStatusText">Disconnected</span>
-          </div>
-        </div>
 
         <!-- Always-visible metrics bar (hidden until connected) -->
         <div class="mc-metrics-bar" id="metricsBar" style="display:none;">
           <div class="mc-metric">
             <span class="mc-metric-val" id="hb-balance">-</span>
-            <span class="mc-metric-lbl">Balance</span>
+            <span class="mc-metric-lbl">Balance<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Total wallet balance in satoshis (1 BSV = 100,000,000 sats). Includes both toolbox-managed and external UTXOs.</span></span></span>
           </div>
           <div class="mc-metric-sep"></div>
           <div class="mc-metric">
             <span class="mc-metric-val mc-metric-val--green" id="hb-earned">-</span>
-            <span class="mc-metric-lbl">Earned</span>
+            <span class="mc-metric-lbl">Earned<span class="mc-help">?<span class="mc-help-tip">Total sats earned by serving paid capabilities to other Claws since this session started.</span></span></span>
           </div>
           <div class="mc-metric-sep"></div>
           <div class="mc-metric">
             <span class="mc-metric-val" id="hb-peers">-</span>
-            <span class="mc-metric-lbl">Peers</span>
+            <span class="mc-metric-lbl">Peers<span class="mc-help">?<span class="mc-help-tip">Number of known Claws in your peer registry. Peers are discovered via invites, announcements, and seed lists.</span></span></span>
           </div>
           <div class="mc-metric-sep"></div>
           <div class="mc-metric">
             <span class="mc-metric-val" id="hb-uptime">-</span>
-            <span class="mc-metric-lbl">Uptime</span>
+            <span class="mc-metric-lbl">Uptime<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">How long your Claw has been running since the last process start.</span></span></span>
           </div>
         </div>
 
         <!-- Connection form -->
         <div class="cp-connect-bar">
-          <label style="font-size:.82rem;color:var(--muted);white-space:nowrap;">Claw Endpoint</label>
+          <label style="font-size:.82rem;color:var(--muted);white-space:nowrap;">Claw Endpoint<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">The HTTP address where your Claw wallet is running, e.g. http://your-server:3321. This is the JSON-RPC server endpoint.</span></span></label>
           <input id="endpoint" placeholder="http://your-server:3321" autocomplete="off">
-          <label style="font-size:.82rem;color:var(--muted);white-space:nowrap;">API Key</label>
-          <input id="apiKey" placeholder="Admin key" autocomplete="off" style="max-width:220px;">
+          <label style="font-size:.82rem;color:var(--muted);white-space:nowrap;">API Key<span class="mc-help">?<span class="mc-help-tip">Admin API key set when you created your Claw wallet. Required for write operations like hiring and submitting quizzes.</span></span></label>
+          <div style="position:relative;display:inline-block;max-width:220px;width:100%;">
+            <input id="apiKey" type="password" placeholder="Admin key" autocomplete="off" style="width:100%;padding-right:32px;">
+            <button type="button" id="toggleApiKey" title="Show/hide API key" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:2px;font-size:1.1rem;line-height:1;color:var(--muted);">&#x1F441;</button>
+          </div>
           <button class="btn btn-primary" id="btnConnect">Connect</button>
           <span class="cp-connect-status" id="connectStatus">Not connected</span>
         </div>
@@ -315,23 +367,23 @@
 
       <!-- Category selector (tier 1) -->
       <div class="mc-categories" id="categoryBar">
-        <button class="mc-cat active" data-category="wallet">
+        <button class="mc-cat active" data-category="wallet" title="Balance, earnings, and spending">
           <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v1H2V3zm0 2h12v8a1 1 0 01-1 1H3a1 1 0 01-1-1V5zm8 3a1 1 0 100 2 1 1 0 000-2z"/></svg>
           <span>Wallet</span>
         </button>
-        <button class="mc-cat" data-category="network">
+        <button class="mc-cat" data-category="network" title="Peer discovery and agent roster">
           <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zM2.07 7.5h3.46A12.9 12.9 0 005.8 4.2 5.97 5.97 0 002.07 7.5zm0 1h3.46c.1 1.2.34 2.3.71 3.3A5.97 5.97 0 012.07 8.5zm4.46 0H8V12c-.7-.6-1.24-1.9-1.47-3.5zm0-1H8V4c-.7.6-1.24 1.9-1.47 3.5zM9 7.5V4c.7.6 1.24 1.9 1.47 3.5H9zm0 1h1.47C10.24 10.1 9.7 11.4 9 12V8.5zm2.47-1h3.46A5.97 5.97 0 0010.2 4.2c.37 1 .61 2.1.71 3.3h.56zm.27 1c-.1 1.2-.34 2.3-.71 3.3a5.97 5.97 0 003.9-3.3h-3.19z"/></svg>
           <span>Network</span>
         </button>
-        <button class="mc-cat" data-category="intelligence">
+        <button class="mc-cat" data-category="intelligence" title="AI brain, on-chain memory, education">
           <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1C5.24 1 3 3.24 3 6c0 1.77.93 3.32 2.33 4.2.27.17.42.46.42.78V12a1 1 0 001 1h2.5a1 1 0 001-1v-1.02c0-.32.15-.61.42-.78A4.99 4.99 0 0013 6c0-2.76-2.24-5-5-5zM6 14h4v.5a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5V14z"/></svg>
           <span>Intelligence</span>
         </button>
-        <button class="mc-cat" data-category="services">
+        <button class="mc-cat" data-category="services" title="Indelible.One: reputation, escrow, messages, oracles">
           <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1L2 4.5v3c0 3.87 2.56 7.49 6 8.5 3.44-1.01 6-4.63 6-8.5v-3L8 1zm0 7.5V3l4 2.25v2.25c0 2.59-1.6 5.04-4 6.12V8.5z"/></svg>
           <span>Services</span>
         </button>
-        <button class="mc-cat" data-category="system">
+        <button class="mc-cat" data-category="system" title="UTXO health, hire test, raw status data">
           <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 4.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7zM6 8a2 2 0 114 0 2 2 0 01-4 0zm1.1-6.9a.75.75 0 01.75-.6h.3a.75.75 0 01.75.6l.15.93a5.5 5.5 0 011.27.52l.73-.6a.75.75 0 01.96.02l.21.21a.75.75 0 01.02.96l-.6.73c.22.4.39.83.52 1.27l.93.15a.75.75 0 01.6.75v.3a.75.75 0 01-.6.75l-.93.15a5.5 5.5 0 01-.52 1.27l.6.73a.75.75 0 01-.02.96l-.21.21a.75.75 0 01-.96.02l-.73-.6a5.5 5.5 0 01-1.27.52l-.15.93a.75.75 0 01-.75.6h-.3a.75.75 0 01-.75-.6l-.15-.93a5.5 5.5 0 01-1.27-.52l-.73.6a.75.75 0 01-.96-.02l-.21-.21a.75.75 0 01-.02-.96l.6-.73A5.5 5.5 0 013.24 9l-.93-.15a.75.75 0 01-.6-.75v-.3a.75.75 0 01.6-.75l.93-.15a5.5 5.5 0 01.52-1.27l-.6-.73a.75.75 0 01.02-.96l.21-.21a.75.75 0 01.96-.02l.73.6A5.5 5.5 0 016.35 4l.15-.93z"/></svg>
           <span>System</span>
         </button>
@@ -367,39 +419,39 @@
       <!-- ── OVERVIEW ────────────────────────────────────────── -->
       <div class="cp-pane active" id="pane-overview">
         <div class="cp-stats" id="overviewStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="os-balance">-</div><div class="cp-stat-lbl">Balance (sats)</div></div>
-          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="os-earned">-</div><div class="cp-stat-lbl">Total Earned</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="os-spent">-</div><div class="cp-stat-lbl">Total Spent</div></div>
-          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="os-net">-</div><div class="cp-stat-lbl">Net Income</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="os-calls">-</div><div class="cp-stat-lbl">Calls Served</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="os-uptime">-</div><div class="cp-stat-lbl">Uptime</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-balance">-</div><div class="cp-stat-lbl">Balance (sats)<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Total wallet balance from both BRC-29 change UTXOs and external P2PKH deposits.</span></span></div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="os-earned">-</div><div class="cp-stat-lbl">Total Earned<span class="mc-help">?<span class="mc-help-tip">Sats received from serving paid capabilities. Resets each session.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-spent">-</div><div class="cp-stat-lbl">Total Spent<span class="mc-help">?<span class="mc-help-tip">Sats spent hiring other Claws, including protocol fees and mining fees.</span></span></div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="os-net">-</div><div class="cp-stat-lbl">Net Income<span class="mc-help">?<span class="mc-help-tip">Earned minus spent. Positive = your Claw is profitable this session.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-calls">-</div><div class="cp-stat-lbl">Calls Served<span class="mc-help">?<span class="mc-help-tip">Total paid capability calls successfully processed and paid for.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-uptime">-</div><div class="cp-stat-lbl">Uptime<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Time since the Claw wallet process started.</span></span></div></div>
         </div>
 
         <div class="cp-stats" id="overviewIndelibleStats" style="display:none;">
-          <div class="cp-stat"><div class="cp-stat-num" id="os-saves">-</div><div class="cp-stat-lbl">Total Saves</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="os-loads">-</div><div class="cp-stat-lbl">Total Loads</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="os-agents">-</div><div class="cp-stat-lbl">Active Agents</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="os-saves-today">-</div><div class="cp-stat-lbl">Saves Today</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="os-onchain-bytes">-</div><div class="cp-stat-lbl">On-Chain Bytes</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-saves">-</div><div class="cp-stat-lbl">Total Saves<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Indelible.One: total context/session saves to the blockchain.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-loads">-</div><div class="cp-stat-lbl">Total Loads<span class="mc-help">?<span class="mc-help-tip">Indelible.One: total context loads from the blockchain.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-agents">-</div><div class="cp-stat-lbl">Active Agents<span class="mc-help">?<span class="mc-help-tip">Number of registered AI agents on the Indelible.One network.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-saves-today">-</div><div class="cp-stat-lbl">Saves Today<span class="mc-help">?<span class="mc-help-tip">Blockchain saves performed today across all agents.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-onchain-bytes">-</div><div class="cp-stat-lbl">On-Chain Bytes<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Total bytes stored on the BSV blockchain via Indelible.One.</span></span></div></div>
         </div>
         <div id="overviewChart" style="display:none;margin-bottom:1rem;">
           <h4 style="font-size:.85rem;margin-bottom:.5rem;color:var(--muted);">30-Day Activity</h4>
           <canvas id="activityChart" height="120"></canvas>
         </div>
 
-        <h4 style="font-size:.85rem;margin-bottom:.5rem;color:var(--muted);">Agent System Flow</h4>
+        <h4 style="font-size:.85rem;margin-bottom:.5rem;color:var(--muted);">Agent System Flow<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Each step lights up red when that subsystem is active. A fully-lit pipeline means your Claw has funded wallet, found peers, earned and spent sats, made brain decisions, and written on-chain memories.</span></span></h4>
         <div class="cp-pipeline" id="pipeline">
-          <div class="cp-pipe-step" id="pipe-wallet">Wallet</div>
+          <div class="cp-pipe-step" id="pipe-wallet" title="Lights up when wallet balance > 0">Wallet</div>
           <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-discover">Discover</div>
+          <div class="cp-pipe-step" id="pipe-discover" title="Lights up when at least 1 peer is known">Discover</div>
           <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-earn">Earn</div>
+          <div class="cp-pipe-step" id="pipe-earn" title="Lights up when total earned > 0 sats">Earn</div>
           <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-spend">Spend</div>
+          <div class="cp-pipe-step" id="pipe-spend" title="Lights up when total spent > 0 sats">Spend</div>
           <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-brain">Brain</div>
+          <div class="cp-pipe-step" id="pipe-brain" title="Lights up when brain has completed at least 1 job">Brain</div>
           <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-memory">Memory</div>
+          <div class="cp-pipe-step" id="pipe-memory" title="Lights up when at least 1 on-chain memory record exists. Use writeMemory RPC to create records.">Memory</div>
         </div>
 
         <div class="cp-grid" style="margin-top:1rem;">
@@ -420,11 +472,11 @@
       <!-- ── EARNING ─────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-earning">
         <div class="cp-stats" id="earningStats">
-          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="es-earned">-</div><div class="cp-stat-lbl">Total Earned</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="es-calls">-</div><div class="cp-stat-lbl">Calls Served</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="es-callers">-</div><div class="cp-stat-lbl">Unique Callers</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="es-fees">-</div><div class="cp-stat-lbl">Fees Collected</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="es-referrals">-</div><div class="cp-stat-lbl">Referral Sats</div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="es-earned">-</div><div class="cp-stat-lbl">Total Earned<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Sats received from all paid capability calls this session.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-calls">-</div><div class="cp-stat-lbl">Calls Served<span class="mc-help">?<span class="mc-help-tip">Number of paid HTTP 402 calls successfully completed.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-callers">-</div><div class="cp-stat-lbl">Unique Callers<span class="mc-help">?<span class="mc-help-tip">Distinct identity keys that have paid for your services.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-fees">-</div><div class="cp-stat-lbl">Fees Collected<span class="mc-help">?<span class="mc-help-tip">2-sat protocol fees collected on each paid call (mandatory ClawSats fee).</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-referrals">-</div><div class="cp-stat-lbl">Referral Sats<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Sats earned from peer referrals in the discovery network.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Revenue by Capability</h3>
@@ -438,10 +490,10 @@
       <!-- ── SPENDING ────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-spending">
         <div class="cp-stats" id="spendingStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="ss-spent">-</div><div class="cp-stat-lbl">Total Spent</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ss-hires">-</div><div class="cp-stat-lbl">Total Hires</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ss-fees">-</div><div class="cp-stat-lbl">Fees Paid</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ss-mining">-</div><div class="cp-stat-lbl">Mining Fees</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-spent">-</div><div class="cp-stat-lbl">Total Spent<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Total sats sent to other Claws for hiring their capabilities.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-hires">-</div><div class="cp-stat-lbl">Total Hires<span class="mc-help">?<span class="mc-help-tip">Number of times your Claw hired another Claw's capability.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-fees">-</div><div class="cp-stat-lbl">Fees Paid<span class="mc-help">?<span class="mc-help-tip">2-sat protocol fees paid per hire (mandatory ClawSats fee).</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-mining">-</div><div class="cp-stat-lbl">Mining Fees<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">BSV transaction mining fees (~1 sat/KB). Negligible cost.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Recent Hires</h3>
@@ -455,10 +507,10 @@
       <!-- ── NETWORK ─────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-network">
         <div class="cp-stats" id="networkStats">
-          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="ns-healthy">-</div><div class="cp-stat-lbl">Healthy Peers</div></div>
-          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="ns-stale">-</div><div class="cp-stat-lbl">Stale Peers</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ns-new">-</div><div class="cp-stat-lbl">New This Week</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ns-total">-</div><div class="cp-stat-lbl">Total Peers</div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="ns-healthy">-</div><div class="cp-stat-lbl">Healthy Peers<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Peers seen within the last 7 days. Healthy peers respond to /health checks.</span></span></div></div>
+          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="ns-stale">-</div><div class="cp-stat-lbl">Stale Peers<span class="mc-help">?<span class="mc-help-tip">Peers not seen for over 7 days. Auto-evicted after the stale threshold.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ns-new">-</div><div class="cp-stat-lbl">New This Week<span class="mc-help">?<span class="mc-help-tip">Peers first discovered in the last 7 days via invites or announcements.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ns-total">-</div><div class="cp-stat-lbl">Total Peers<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Total Claws in the peer registry (max 500). Includes healthy + stale.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Peer List</h3>
@@ -472,12 +524,12 @@
       <!-- ── BRAIN ───────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-brain">
         <div class="cp-stats" id="brainStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="bs-pending">-</div><div class="cp-stat-lbl">Pending</div></div>
-          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="bs-completed">-</div><div class="cp-stat-lbl">Completed</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="bs-failed">-</div><div class="cp-stat-lbl">Failed</div></div>
-          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="bs-approval">-</div><div class="cp-stat-lbl">Needs Approval</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="bs-auto">-</div><div class="cp-stat-lbl">Auto-Approved</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="bs-conf">-</div><div class="cp-stat-lbl">Avg Confidence</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-pending">-</div><div class="cp-stat-lbl">Pending<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Brain jobs queued but not yet executed by the LLM decision engine.</span></span></div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="bs-completed">-</div><div class="cp-stat-lbl">Completed<span class="mc-help">?<span class="mc-help-tip">Brain jobs successfully decided and actions executed.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-failed">-</div><div class="cp-stat-lbl">Failed<span class="mc-help">?<span class="mc-help-tip">Brain jobs that errored out. 3 failures on the same tool opens a circuit breaker.</span></span></div></div>
+          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="bs-approval">-</div><div class="cp-stat-lbl">Needs Approval<span class="mc-help">?<span class="mc-help-tip">Gated actions (hireClaw, createAction, writeMemory) waiting for human approval.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-auto">-</div><div class="cp-stat-lbl">Auto-Approved<span class="mc-help">?<span class="mc-help-tip">Actions auto-approved by policy (read-only tools on the allowed list).</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-conf">-</div><div class="cp-stat-lbl">Avg Confidence<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Average LLM confidence score (0-1) across recent decisions.</span></span></div></div>
         </div>
         <div class="cp-grid">
           <div class="cp-card">
@@ -498,8 +550,8 @@
       <!-- ── MEMORY ──────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-memory">
         <div class="cp-stats" id="memoryStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="ms-records">-</div><div class="cp-stat-lbl">On-Chain Records</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ms-index">-</div><div class="cp-stat-lbl">Has Master Index</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-records">-</div><div class="cp-stat-lbl">On-Chain Records<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">OP_RETURN memory entries written to BSV blockchain (CLAWMEM_V1 tag). Created via writeMemory RPC or brain auto-write.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-index">-</div><div class="cp-stat-lbl">Has Master Index<span class="mc-help">?<span class="mc-help-tip">Whether a master index of all memory keys has been published on-chain for disaster recovery.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Memory Details</h3>
@@ -517,8 +569,8 @@
       <!-- ── EDUCATION ───────────────────────────────────────── -->
       <div class="cp-pane" id="pane-education">
         <div class="cp-stats" id="eduStats">
-          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="edu-completed">-</div><div class="cp-stat-lbl">Courses Done</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="edu-available">-</div><div class="cp-stat-lbl">Available</div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="edu-completed">-</div><div class="cp-stat-lbl">Courses Done<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Courses this Claw has passed. Completing courses unlocks advanced capabilities.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="edu-available">-</div><div class="cp-stat-lbl">Available<span class="mc-help">?<span class="mc-help-tip">Total courses in the curriculum (16 static JSON courses). Some have prerequisites.</span></span></div></div>
         </div>
         <div class="cp-grid">
           <div class="cp-card">
@@ -545,10 +597,11 @@
         <div class="mc-indelible-notice" id="indelible-notice-agents" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
           <div><strong>Indelible.One Required</strong><p>Enable Indelible.One in your Claw configuration to view registered agents.</p></div>
+          <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="agentStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="ag-count">-</div><div class="cp-stat-lbl">Registered Agents</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ag-caps">-</div><div class="cp-stat-lbl">Total Capabilities</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ag-count">-</div><div class="cp-stat-lbl">Registered Agents<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">AI agents registered with Indelible.One, each with a BRC-52 certificate.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ag-caps">-</div><div class="cp-stat-lbl">Total Capabilities<span class="mc-help">?<span class="mc-help-tip">Sum of all capabilities across all registered agents.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Agent Roster</h3>
@@ -564,10 +617,11 @@
         <div class="mc-indelible-notice" id="indelible-notice-reputation" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
           <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view trust scores and submit attestations.</p></div>
+          <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="repStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="rp-agents">-</div><div class="cp-stat-lbl">Rated Agents</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="rp-attestations">-</div><div class="cp-stat-lbl">Total Attestations</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="rp-agents">-</div><div class="cp-stat-lbl">Rated Agents<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Agents that have received at least one trust attestation from a peer.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="rp-attestations">-</div><div class="cp-stat-lbl">Total Attestations<span class="mc-help">?<span class="mc-help-tip">Total peer-to-peer trust ratings submitted. Score = avg rating + volume + diversity + recency bonuses.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Trust Scores</h3>
@@ -597,10 +651,11 @@
         <div class="mc-indelible-notice" id="indelible-notice-escrow" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
           <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view and manage escrow contracts.</p></div>
+          <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="escrowStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="esc-active">-</div><div class="cp-stat-lbl">Active Escrows</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="esc-total-sats">-</div><div class="cp-stat-lbl">Total Locked (sats)</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="esc-active">-</div><div class="cp-stat-lbl">Active Escrows<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Escrow contracts in pending or accepted state. Funds are held until release or dispute resolution.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="esc-total-sats">-</div><div class="cp-stat-lbl">Total Locked (sats)<span class="mc-help">?<span class="mc-help-tip">Sum of sats currently locked in active escrow contracts.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Escrow List</h3>
@@ -616,9 +671,10 @@
         <div class="mc-indelible-notice" id="indelible-notice-messages" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
           <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view encrypted message channels.</p></div>
+          <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="msgStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="msg-channels">-</div><div class="cp-stat-lbl">Channels</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="msg-channels">-</div><div class="cp-stat-lbl">Channels<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Encrypted peer-to-peer message channels via Indelible.One. Uses BRC-33 MessageBox protocol.</span></span></div></div>
         </div>
         <div class="cp-card">
           <h3>Encrypted Channels</h3>
@@ -634,10 +690,11 @@
         <div class="mc-indelible-notice" id="indelible-notice-oracles" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
           <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view oracle registries and attestations.</p></div>
+          <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="oracleStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="or-registries">-</div><div class="cp-stat-lbl">Oracle Registries</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="or-attestations">-</div><div class="cp-stat-lbl">Attestations</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="or-registries">-</div><div class="cp-stat-lbl">Oracle Registries<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Agents registered as data oracles, providing verifiable off-chain data on-chain.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="or-attestations">-</div><div class="cp-stat-lbl">Attestations<span class="mc-help">?<span class="mc-help-tip">Signed oracle data attestations. Each includes data type, value, source, and confidence score.</span></span></div></div>
         </div>
         <div class="cp-grid">
           <div class="cp-card">
@@ -660,12 +717,12 @@
       <!-- ── DIAGNOSTICS ─────────────────────────────────────── -->
       <div class="cp-pane" id="pane-diagnostics">
         <div class="cp-stats" id="diagStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="dx-utxo-total">-</div><div class="cp-stat-lbl">UTXO Total</div></div>
-          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="dx-utxo-avail">-</div><div class="cp-stat-lbl">Available</div></div>
-          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="dx-utxo-locked">-</div><div class="cp-stat-lbl">Locked</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="dx-utxo-stuck">-</div><div class="cp-stat-lbl">Stuck</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="dx-503">-</div><div class="cp-stat-lbl">503s Returned</div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="dx-concurrency">-</div><div class="cp-stat-lbl">Concurrency Slots</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-utxo-total">-</div><div class="cp-stat-lbl">UTXO Total<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Total unspent transaction outputs in the wallet. Each UTXO can fund one concurrent payment.</span></span></div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="dx-utxo-avail">-</div><div class="cp-stat-lbl">Available<span class="mc-help">?<span class="mc-help-tip">UTXOs ready to use for payments. More = higher concurrency.</span></span></div></div>
+          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="dx-utxo-locked">-</div><div class="cp-stat-lbl">Locked<span class="mc-help">?<span class="mc-help-tip">UTXOs currently reserved for in-flight transactions. Released after ~1-2 seconds.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-utxo-stuck">-</div><div class="cp-stat-lbl">Stuck<span class="mc-help">?<span class="mc-help-tip">UTXOs locked for over 5 minutes. Usually from failed transactions. Auto-recovered on restart.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-503">-</div><div class="cp-stat-lbl">503s Returned<span class="mc-help">?<span class="mc-help-tip">Times your Claw returned HTTP 503 (Service Unavailable) because all UTXOs were locked.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-concurrency">-</div><div class="cp-stat-lbl">Concurrency Slots<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Max simultaneous 402 payment flows. Scales with UTXO count and balance.</span></span></div></div>
         </div>
 
         <div class="cp-grid">

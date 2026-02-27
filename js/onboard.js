@@ -133,6 +133,18 @@
     }));
   }
 
+  // ── API key visibility toggle ───────────────────────────────
+  const toggleBtn = document.getElementById('toggleApiKey');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      const inp = el('apiKey');
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      toggleBtn.textContent = show ? '\u25CF' : '\u{1F441}';
+      toggleBtn.title = show ? 'Hide API key' : 'Show API key';
+    });
+  }
+
   // ── Tab switching ────────────────────────────────────────────
 
   function initTabs() {
@@ -218,9 +230,16 @@
     if (!endpoint) return;
     try {
       statusData = await postJSON('/api/openclaw/status', { endpoint });
+      connected = true;
+      el('connectStatus').innerHTML = '<span class="cp-badge cp-badge-ok">Connected</span>';
       renderAll(statusData);
     } catch (err) {
       el('connectStatus').innerHTML = '<span class="cp-badge cp-badge-warn">Refresh failed</span> ' + err.message;
+      // Update header to show warning state too
+      const dot = el('headerDot');
+      const text = el('connectStatusText');
+      if (dot) dot.className = 'mc-status-dot mc-status-dot--err';
+      if (text) { text.textContent = 'Refresh failed'; text.style.color = '#f5a623'; }
     }
   }
 
@@ -321,7 +340,7 @@
     light('pipe-earn', (econ.totalEarnedSats || 0) > 0);
     light('pipe-spend', (econ.totalSpentSats || 0) > 0);
     light('pipe-brain', (d.brain?.completed || 0) > 0);
-    light('pipe-memory', (d.memory?.totalRecords || d.memory?.total || 0) > 0);
+    light('pipe-memory', (d.memory?.totalMemories || 0) > 0);
 
     // Capabilities table
     const caps = d.capabilities || [];
@@ -458,11 +477,11 @@
 
   function renderMemory(d) {
     const mem = d.memory || {};
-    el('ms-records').textContent = fmt(mem.totalRecords || mem.total || 0);
+    el('ms-records').textContent = fmt(mem.totalMemories || 0);
     el('ms-index').textContent = mem.masterIndexTxid ? 'Yes' : 'No';
 
     const lines = [];
-    lines.push('Total records: ' + fmt(mem.totalRecords || mem.total || 0));
+    lines.push('Total records: ' + fmt(mem.totalMemories || 0));
     if (mem.masterIndexTxid) lines.push('Master index TXID: ' + mem.masterIndexTxid);
     if (mem.backend) lines.push('Backend: ' + mem.backend);
     if (mem.keys) lines.push('Keys: ' + (Array.isArray(mem.keys) ? mem.keys.join(', ') : mem.keys));
