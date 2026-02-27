@@ -7,6 +7,7 @@
   let connected = false;
   let lastRefreshAt = 0;
   let freshnessTimer = null;
+  let connectData = null;
 
   // ── Category → sub-tab mapping ────────────────────────────────
   const CATEGORIES = {
@@ -208,13 +209,45 @@
     try {
       const data = await postJSON('/api/openclaw/connect', { endpoint });
       connected = true;
-      el('connectStatus').innerHTML = '<span class="cp-badge cp-badge-ok">Connected</span>';
-      updateHeaderStatus({});
 
       // Populate courses if available
       if (Array.isArray(data?.courses)) populateCourses(data.courses);
 
-      // Load full dashboard
+      // Build partial status from connect response so UI isn't empty
+      const health = data?.health || {};
+      const disc = data?.discovery || {};
+      const caps = (disc.paidCapabilities || []).map(function(c) {
+        return { name: c.name, description: c.description || '', pricePerCall: c.pricePerCall, callsServed: 0, revenueSats: 0 };
+      });
+      connectData = {
+        identity: disc.identityKey || '',
+        chain: disc.chain || 'main',
+        uptime: health.server?.uptime || 0,
+        wallet: null,
+        economy: {},
+        hiring: {},
+        capabilities: caps,
+        reputation: {},
+        network: {},
+        peers: [],
+        peerCount: 0,
+        education: {},
+        memory: {},
+        brain: {},
+        jobs: {},
+        activityFeed: [],
+        recentEvents: [],
+        indelible: null,
+        endpoint: endpoint,
+        timestamp: new Date().toISOString()
+      };
+
+      // Show partial data immediately
+      el('connectStatus').innerHTML = '<span class="cp-badge cp-badge-ok">Connected</span> Loading dashboard...';
+      updateHeaderStatus(connectData);
+      renderAll(connectData);
+
+      // Load full dashboard (may take time or fail)
       await loadDashboard();
       startDashboardRefresh();
     } catch (err) {
