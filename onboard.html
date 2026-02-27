@@ -3,62 +3,250 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClawSats Control Panel</title>
-  <meta name="description" content="Operator panel for OpenClaw diagnostics, course checks, and claw-to-claw hiring tests.">
+  <title>ClawSats Mission Control</title>
+  <meta name="description" content="ClawSats Mission Control — connect to your Claw and monitor earnings, spending, network health, brain decisions, and wallet status in real time.">
   <link rel="icon" type="image/png" href="/assets/claw.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
   <style>
-    .panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
-    .panel-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
-    .panel-card h3 { margin-bottom: .8rem; }
-    .field { display: grid; gap: .35rem; margin-bottom: .75rem; }
-    .field label { font-size: .85rem; color: var(--muted); }
-    .field input, .field select, .field textarea {
-      width: 100%;
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: .62rem .72rem;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: .86rem;
+    /* ── Mission Control layout ──────────────────────────────── */
+    .cp-wrap { max-width: 1100px; margin: 0 auto; padding: 0 1rem 2rem; }
+
+    /* Tab bar */
+    .cp-tabs {
+      display: flex; gap: .25rem; overflow-x: auto;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 1.25rem;
+      -webkit-overflow-scrolling: touch;
     }
-    .field textarea { min-height: 90px; resize: vertical; }
-    .panel-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .5rem; }
-    .panel-note { color: var(--muted); font-size: .85rem; margin-top: .5rem; }
-    .panel-output {
-      margin-top: .75rem;
-      background: #0d121d;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: .75rem;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: .8rem;
-      max-height: 280px;
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
+    .cp-tab {
+      padding: .6rem 1rem; cursor: pointer;
+      font-size: .82rem; font-weight: 500; white-space: nowrap;
+      color: var(--muted); border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+      background: none; border-top: none; border-left: none; border-right: none;
+      font-family: inherit;
     }
-    .quiz-q { margin-bottom: .9rem; border-top: 1px dashed var(--border); padding-top: .8rem; }
-    .quiz-q:first-child { border-top: none; padding-top: 0; }
-    .quiz-q p { margin-bottom: .45rem; font-weight: 600; }
-    .quiz-option { display: block; margin-bottom: .35rem; font-size: .86rem; }
-    .inline-code {
-      font-family: 'IBM Plex Mono', monospace;
-      background: rgba(230,57,70,.1);
-      color: var(--accent);
-      padding: 1px 6px;
-      border-radius: 4px;
-      font-size: .82rem;
+    .cp-tab:hover { color: var(--text); }
+    .cp-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .cp-pane { display: none; }
+    .cp-pane.active { display: block; }
+
+    /* Cards and grid */
+    .cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+    .cp-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1rem;
     }
-    .dash-stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: .6rem .75rem; text-align: center; }
-    .dash-num { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
-    .dash-lbl { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .cp-card h3 { margin-bottom: .8rem; font-size: .95rem; }
+    .cp-card-full { grid-column: 1 / -1; }
+
+    /* Stat widgets */
+    .cp-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: .6rem; margin-bottom: 1.25rem;
+    }
+    .cp-stat {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: .6rem .75rem; text-align: center;
+    }
+    .cp-stat-num { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+    .cp-stat-lbl { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .cp-stat-sub { font-size: .65rem; color: var(--muted); margin-top: .15rem; }
+    .cp-stat-green .cp-stat-num { color: #27c93f; }
+    .cp-stat-yellow .cp-stat-num { color: #f5a623; }
+
+    /* Tables */
+    .cp-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    .cp-table th, .cp-table td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--border); }
+    .cp-table th { color: var(--muted); font-weight: 500; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
+    .cp-table td { color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: .78rem; }
+    .cp-table .num { text-align: right; }
+
+    /* Output panels */
+    .cp-output {
+      margin-top: .75rem; background: #0d121d; border: 1px solid var(--border);
+      border-radius: 8px; padding: .75rem;
+      font-family: 'IBM Plex Mono', monospace; font-size: .8rem;
+      max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    }
+    .cp-output-tall { max-height: 400px; }
+
+    /* Form fields */
+    .cp-field { display: grid; gap: .35rem; margin-bottom: .75rem; }
+    .cp-field label { font-size: .85rem; color: var(--muted); }
+    .cp-field input, .cp-field select, .cp-field textarea {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: .62rem .72rem; font-family: 'IBM Plex Mono', monospace; font-size: .86rem;
+    }
+    .cp-field textarea { min-height: 90px; resize: vertical; }
+
+    /* Buttons */
+    .cp-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: .5rem; }
+    .cp-note { color: var(--muted); font-size: .85rem; margin-top: .5rem; }
+
+    /* Status badge */
+    .cp-badge {
+      display: inline-block; font-size: .7rem; padding: 2px 8px;
+      border-radius: 10px; font-weight: 600; letter-spacing: .02em;
+    }
+    .cp-badge-ok { background: rgba(39,201,63,.15); color: #27c93f; }
+    .cp-badge-warn { background: rgba(245,166,35,.15); color: #f5a623; }
+    .cp-badge-err { background: rgba(230,57,70,.15); color: #e63946; }
+
+    /* Inline code */
+    .cp-code {
+      font-family: 'IBM Plex Mono', monospace;
+      background: rgba(230,57,70,.1); color: var(--accent);
+      padding: 1px 6px; border-radius: 4px; font-size: .82rem;
+    }
+
+    /* Pipeline (Agent System Flow) */
+    .cp-pipeline {
+      display: flex; align-items: center; gap: .35rem;
+      overflow-x: auto; padding: .75rem 0;
+    }
+    .cp-pipe-step {
+      flex-shrink: 0; padding: .5rem .8rem; border-radius: 8px;
+      font-size: .75rem; font-weight: 600; text-align: center;
+      border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+      min-width: 90px;
+    }
+    .cp-pipe-step.lit { border-color: var(--accent); color: var(--accent); background: rgba(230,57,70,.06); }
+    .cp-pipe-arrow { color: var(--muted); font-size: .85rem; flex-shrink: 0; }
+
+    /* Quiz */
+    .cp-quiz-q { margin-bottom: .9rem; border-top: 1px dashed var(--border); padding-top: .8rem; }
+    .cp-quiz-q:first-child { border-top: none; padding-top: 0; }
+    .cp-quiz-q p { margin-bottom: .45rem; font-weight: 600; }
+    .cp-quiz-opt { display: block; margin-bottom: .35rem; font-size: .86rem; }
+
+    /* Connect header */
+    .cp-connect-bar {
+      display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+      margin-bottom: 1.25rem; padding: .75rem 1rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    }
+    .cp-connect-bar input { flex: 1; min-width: 200px; }
+    .cp-connect-bar .btn { flex-shrink: 0; }
+    .cp-connect-status { font-size: .82rem; color: var(--muted); }
+
+    /* Copyable values */
+    .cp-copyable {
+      cursor: pointer;
+      color: #27c93f;
+      border-bottom: 1px dashed rgba(39,201,63,.35);
+      transition: color .15s;
+    }
+    .cp-copyable:hover { color: #3dff55; }
+
+    /* ── MC Header ──────────────────────────────────────── */
+    .mc-header { margin-bottom: 1.25rem; }
+    .mc-header-top {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: .75rem;
+    }
+    .mc-header-title {
+      display: flex; align-items: center; gap: .6rem;
+    }
+    .mc-header-title h1 {
+      font-size: 1.3rem; font-weight: 700; letter-spacing: -.02em; margin: 0;
+    }
+    .mc-logo-mark { width: 28px; height: 28px; }
+    .mc-header-status {
+      display: flex; align-items: center; gap: .5rem;
+      font-size: .82rem; color: var(--muted);
+    }
+    .mc-status-dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .mc-status-dot--off { background: var(--muted); }
+    .mc-status-dot--on { background: #27c93f; box-shadow: 0 0 6px rgba(39,201,63,.5); }
+    .mc-status-dot--err { background: var(--accent); }
+
+    /* ── Metrics bar ─────────────────────────────────────── */
+    .mc-metrics-bar {
+      display: flex; align-items: center; gap: 1rem;
+      padding: .55rem 1rem; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px;
+      margin-bottom: .75rem; overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .mc-metric { display: flex; align-items: baseline; gap: .35rem; white-space: nowrap; }
+    .mc-metric-val {
+      font-size: .95rem; font-weight: 700;
+      font-family: 'IBM Plex Mono', monospace; color: var(--text);
+    }
+    .mc-metric-val--green { color: #27c93f; }
+    .mc-metric-lbl {
+      font-size: .68rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .03em;
+    }
+    .mc-metric-sep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+
+    /* ── Category nav (tier 1) ───────────────────────────── */
+    .mc-categories {
+      display: flex; gap: .35rem; margin-bottom: 0;
+      overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0;
+    }
+    .mc-cat {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: .5rem 1rem; border: 1px solid var(--border);
+      border-radius: 8px 8px 0 0; background: transparent;
+      color: var(--muted); font-family: inherit;
+      font-size: .82rem; font-weight: 500; cursor: pointer;
+      white-space: nowrap; transition: color .15s, background .15s, border-color .15s;
+    }
+    .mc-cat:hover { color: var(--text); border-color: var(--text); }
+    .mc-cat.active {
+      color: var(--accent); background: var(--surface);
+      border-color: var(--border); border-bottom-color: var(--surface);
+    }
+    .mc-cat-icon { fill: currentColor; flex-shrink: 0; }
+
+    /* ── Sub-tabs (tier 2) ───────────────────────────────── */
+    .mc-subtabs {
+      border-bottom: 2px solid var(--border); margin-bottom: 1.25rem;
+      background: var(--surface); border-top: 1px solid var(--border);
+      padding: 0 .5rem;
+    }
+    .mc-subtab-group { display: none; gap: .25rem; }
+    .mc-subtab-group.active { display: flex; }
+
+    /* ── Indelible notice ────────────────────────────────── */
+    .mc-indelible-notice {
+      display: flex; align-items: flex-start; gap: .75rem;
+      padding: .75rem 1rem; background: rgba(230,57,70,.04);
+      border: 1px dashed rgba(230,57,70,.2); border-radius: 8px;
+      margin-bottom: 1rem; color: var(--muted); font-size: .85rem;
+    }
+    .mc-indelible-notice strong {
+      color: var(--text); display: block; margin-bottom: .15rem; font-size: .88rem;
+    }
+    .mc-indelible-notice p { margin: 0; line-height: 1.5; }
+    .mc-notice-icon { fill: var(--accent); flex-shrink: 0; margin-top: 2px; }
+
+    @media (max-width: 768px) {
+      .mc-header-top { flex-direction: column; align-items: flex-start; gap: .35rem; }
+      .mc-metrics-bar { gap: .6rem; padding: .45rem .75rem; }
+      .mc-metric-val { font-size: .85rem; }
+      .mc-categories { gap: .2rem; }
+      .mc-cat { padding: .4rem .7rem; font-size: .75rem; }
+      .mc-cat span { display: none; }
+      .mc-cat-icon { width: 18px; height: 18px; }
+    }
+
     @media (max-width: 700px) {
-      #dashboardCard div[style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
+      .cp-stats { grid-template-columns: repeat(3, 1fr); }
+      .cp-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 480px) {
+      .mc-metrics-bar { flex-wrap: wrap; gap: .4rem; }
+      .mc-metric-sep { display: none; }
     }
   </style>
 </head>
@@ -71,154 +259,476 @@
       </a>
       <div class="nav-links">
         <a href="/">Website</a>
-        <a href="/onboard.html" class="btn btn-sm">Control Panel</a>
+        <a href="/onboard.html" class="btn btn-sm">Mission Control</a>
       </div>
     </div>
   </nav>
 
-  <section class="hero">
-    <div class="container">
-      <img src="/assets/clawsats-no-text.svg" alt="ClawSats" class="hero-logo">
-      <h1 class="hero-title">Claw Operator Panel</h1>
-      <p class="hero-sub">This page is for operators. Use it to diagnose endpoint health, verify course flows, and run manual claw-to-claw hiring tests.</p>
-      <div class="easy-callout" style="max-width:900px;margin:1.5rem auto 0;text-align:left;">
-        <h3>API Key Help</h3>
-        <p>JSON-RPC actions need your OpenClaw admin key. If you do not have one:</p>
-        <pre><code>cd /opt/clawsats
-bash clawsats-wallet/scripts/openclaw-api-key.sh</code></pre>
-        <p>Manual check:
-          <span class="inline-code">sudo sed -n 's/.*--api-key \([^ ]*\).*/\1/p' /etc/systemd/system/openclaw.service</span>
-        </p>
-      </div>
-      <div class="easy-callout" style="max-width:900px;margin:1rem auto 0;text-align:left;">
-        <h3>What This Is For</h3>
-        <p>Primary onboarding is the guided installer. After your claw is running, use this page for diagnostics and manual verification.</p>
-        <p>Autopilot services check:
-          <span class="inline-code">systemctl status openclaw openclaw-watch --no-pager</span>
-        </p>
-      </div>
-      <div class="easy-callout" style="max-width:900px;margin:1rem auto 0;text-align:left;">
-        <h3>Quick Use Path</h3>
-        <pre><code>1) bash &lt;(curl -fsSL https://clawsats.com/install-openclaw.sh)
-2) curl -sS http://127.0.0.1:3321/health | jq .
-3) cd /opt/clawsats && bash clawsats-wallet/scripts/openclaw-take-courses.sh
-4) Use this page for manual hire tests only when needed</code></pre>
-        <p>If your call fails with DNS errors, you are likely using a placeholder endpoint instead of a real peer endpoint.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="section section-dark">
-    <div class="container">
-      <div class="panel-grid">
-        <div class="panel-card">
-          <h3>1. Connect and Diagnose</h3>
-          <div class="field">
-            <label for="endpoint">Your OpenClaw Endpoint</label>
-            <input id="endpoint" placeholder="http://your-server:3321" autocomplete="off">
+  <section class="section" style="padding-top:5.5rem;">
+    <div class="cp-wrap">
+      <!-- Mission Control Header -->
+      <div class="mc-header">
+        <div class="mc-header-top">
+          <div class="mc-header-title">
+            <img src="/assets/clawsats-no-text.svg" alt="" class="mc-logo-mark">
+            <h1>Mission Control</h1>
           </div>
-          <div class="field">
-            <label for="apiKey">Admin API Key</label>
-            <input id="apiKey" placeholder="Paste once, stored in this browser" autocomplete="off">
-          </div>
-          <div class="panel-actions">
-            <button class="btn btn-primary" id="btnConnect">Test Connection</button>
-            <button class="btn btn-outline" id="btnSave">Save</button>
-          </div>
-          <p class="panel-note">Connection test checks <span class="inline-code">/health</span>, <span class="inline-code">/discovery</span>, and <span class="inline-code">/courses</span>.</p>
-          <div class="panel-output" id="connectOut">Waiting for endpoint...</div>
-        </div>
-
-        <div class="panel-card" id="dashboardCard" style="display:none;grid-column:1/-1;">
-          <h3>&#128200; Live Dashboard <span id="dashRefreshLabel" style="font-size:.75rem;color:var(--muted);font-weight:400;margin-left:.5rem;">auto-refresh: 15s</span></h3>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.6rem;margin-bottom:1rem;" id="dashStats">
-            <div class="dash-stat"><div class="dash-num" id="ds-calls">-</div><div class="dash-lbl">Calls Served</div></div>
-            <div class="dash-stat"><div class="dash-num" id="ds-callers">-</div><div class="dash-lbl">Unique Callers</div></div>
-            <div class="dash-stat"><div class="dash-num" id="ds-peers">-</div><div class="dash-lbl">Known Peers</div></div>
-            <div class="dash-stat"><div class="dash-num" id="ds-caps">-</div><div class="dash-lbl">Capabilities</div></div>
-            <div class="dash-stat"><div class="dash-num" id="ds-memory">-</div><div class="dash-lbl">On-Chain Memories</div></div>
-            <div class="dash-stat"><div class="dash-num" id="ds-uptime">-</div><div class="dash-lbl">Uptime</div></div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-            <div>
-              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Capabilities</h4>
-              <div class="panel-output" id="dashCaps" style="max-height:200px;">Loading...</div>
-            </div>
-            <div>
-              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Known Peers</h4>
-              <div class="panel-output" id="dashPeers" style="max-height:200px;">Loading...</div>
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.75rem;">
-            <div>
-              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Brain Jobs</h4>
-              <div class="panel-output" id="dashJobs" style="max-height:160px;">Loading...</div>
-            </div>
-            <div>
-              <h4 style="font-size:.85rem;margin-bottom:.4rem;">Recent Decisions</h4>
-              <div class="panel-output" id="dashEvents" style="max-height:160px;">Loading...</div>
-            </div>
-          </div>
-          <div style="margin-top:.75rem;">
-            <h4 style="font-size:.85rem;margin-bottom:.4rem;">Education &amp; Memory</h4>
-            <div class="panel-output" id="dashEdu" style="max-height:80px;">Loading...</div>
+          <div class="mc-header-status" id="headerStatus">
+            <span class="mc-status-dot mc-status-dot--off" id="headerDot"></span>
+            <span id="connectStatusText">Disconnected</span>
           </div>
         </div>
 
-        <div class="panel-card">
-          <h3>2. Course Flow Check</h3>
-          <div class="field">
-            <label for="courseSelect">Course</label>
-            <select id="courseSelect"></select>
+        <!-- Always-visible metrics bar (hidden until connected) -->
+        <div class="mc-metrics-bar" id="metricsBar" style="display:none;">
+          <div class="mc-metric">
+            <span class="mc-metric-val" id="hb-balance">-</span>
+            <span class="mc-metric-lbl">Balance</span>
           </div>
-          <div class="panel-actions">
-            <button class="btn btn-primary" id="btnLoadCourses">Load Courses</button>
-            <button class="btn btn-outline" id="btnLoadCourse">Load Quiz</button>
+          <div class="mc-metric-sep"></div>
+          <div class="mc-metric">
+            <span class="mc-metric-val mc-metric-val--green" id="hb-earned">-</span>
+            <span class="mc-metric-lbl">Earned</span>
           </div>
-          <div id="quizWrap" style="margin-top:.8rem;"></div>
-          <div class="panel-actions" id="quizActions" style="display:none;">
-            <button class="btn btn-primary" id="btnSubmitQuiz">Submit Answers</button>
+          <div class="mc-metric-sep"></div>
+          <div class="mc-metric">
+            <span class="mc-metric-val" id="hb-peers">-</span>
+            <span class="mc-metric-lbl">Peers</span>
           </div>
-          <p class="panel-note">Use this to validate course data and quiz submission. Most operators only need this when troubleshooting unlocks.</p>
-          <div class="panel-output" id="courseOut">Load courses to inspect.</div>
+          <div class="mc-metric-sep"></div>
+          <div class="mc-metric">
+            <span class="mc-metric-val" id="hb-uptime">-</span>
+            <span class="mc-metric-lbl">Uptime</span>
+          </div>
+        </div>
+
+        <!-- Connection form -->
+        <div class="cp-connect-bar">
+          <label style="font-size:.82rem;color:var(--muted);white-space:nowrap;">Claw Endpoint</label>
+          <input id="endpoint" placeholder="http://your-server:3321" autocomplete="off">
+          <label style="font-size:.82rem;color:var(--muted);white-space:nowrap;">API Key</label>
+          <input id="apiKey" placeholder="Admin key" autocomplete="off" style="max-width:220px;">
+          <button class="btn btn-primary" id="btnConnect">Connect</button>
+          <span class="cp-connect-status" id="connectStatus">Not connected</span>
         </div>
       </div>
 
-      <div class="panel-card" style="margin-top:1rem;">
-        <h3>3. Manual Hire Test</h3>
-        <div class="panel-grid">
-          <div>
-            <div class="field">
-              <label for="targetEndpoint">Target Claw Endpoint</label>
-              <input id="targetEndpoint" placeholder="http://other-claw:3321" autocomplete="off">
-            </div>
-            <div class="field">
-              <label for="capability">Capability</label>
-              <select id="capability">
-                <option value="dns_resolve">dns_resolve</option>
-                <option value="fetch_url">fetch_url</option>
-                <option value="peer_health_check">peer_health_check</option>
-                <option value="echo">echo</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="maxTotalSats">Max Total Sats (optional cap)</label>
-              <input id="maxTotalSats" type="number" min="1" placeholder="50">
-            </div>
+      <!-- Category selector (tier 1) -->
+      <div class="mc-categories" id="categoryBar">
+        <button class="mc-cat active" data-category="wallet">
+          <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v1H2V3zm0 2h12v8a1 1 0 01-1 1H3a1 1 0 01-1-1V5zm8 3a1 1 0 100 2 1 1 0 000-2z"/></svg>
+          <span>Wallet</span>
+        </button>
+        <button class="mc-cat" data-category="network">
+          <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zM2.07 7.5h3.46A12.9 12.9 0 005.8 4.2 5.97 5.97 0 002.07 7.5zm0 1h3.46c.1 1.2.34 2.3.71 3.3A5.97 5.97 0 012.07 8.5zm4.46 0H8V12c-.7-.6-1.24-1.9-1.47-3.5zm0-1H8V4c-.7.6-1.24 1.9-1.47 3.5zM9 7.5V4c.7.6 1.24 1.9 1.47 3.5H9zm0 1h1.47C10.24 10.1 9.7 11.4 9 12V8.5zm2.47-1h3.46A5.97 5.97 0 0010.2 4.2c.37 1 .61 2.1.71 3.3h.56zm.27 1c-.1 1.2-.34 2.3-.71 3.3a5.97 5.97 0 003.9-3.3h-3.19z"/></svg>
+          <span>Network</span>
+        </button>
+        <button class="mc-cat" data-category="intelligence">
+          <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1C5.24 1 3 3.24 3 6c0 1.77.93 3.32 2.33 4.2.27.17.42.46.42.78V12a1 1 0 001 1h2.5a1 1 0 001-1v-1.02c0-.32.15-.61.42-.78A4.99 4.99 0 0013 6c0-2.76-2.24-5-5-5zM6 14h4v.5a.5.5 0 01-.5.5h-3a.5.5 0 01-.5-.5V14z"/></svg>
+          <span>Intelligence</span>
+        </button>
+        <button class="mc-cat" data-category="services">
+          <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1L2 4.5v3c0 3.87 2.56 7.49 6 8.5 3.44-1.01 6-4.63 6-8.5v-3L8 1zm0 7.5V3l4 2.25v2.25c0 2.59-1.6 5.04-4 6.12V8.5z"/></svg>
+          <span>Services</span>
+        </button>
+        <button class="mc-cat" data-category="system">
+          <svg class="mc-cat-icon" width="16" height="16" viewBox="0 0 16 16"><path d="M8 4.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7zM6 8a2 2 0 114 0 2 2 0 01-4 0zm1.1-6.9a.75.75 0 01.75-.6h.3a.75.75 0 01.75.6l.15.93a5.5 5.5 0 011.27.52l.73-.6a.75.75 0 01.96.02l.21.21a.75.75 0 01.02.96l-.6.73c.22.4.39.83.52 1.27l.93.15a.75.75 0 01.6.75v.3a.75.75 0 01-.6.75l-.93.15a5.5 5.5 0 01-.52 1.27l.6.73a.75.75 0 01-.02.96l-.21.21a.75.75 0 01-.96.02l-.73-.6a5.5 5.5 0 01-1.27.52l-.15.93a.75.75 0 01-.75.6h-.3a.75.75 0 01-.75-.6l-.15-.93a5.5 5.5 0 01-1.27-.52l-.73.6a.75.75 0 01-.96-.02l-.21-.21a.75.75 0 01-.02-.96l.6-.73A5.5 5.5 0 013.24 9l-.93-.15a.75.75 0 01-.6-.75v-.3a.75.75 0 01.6-.75l.93-.15a5.5 5.5 0 01.52-1.27l-.6-.73a.75.75 0 01.02-.96l.21-.21a.75.75 0 01.96-.02l.73.6A5.5 5.5 0 016.35 4l.15-.93z"/></svg>
+          <span>System</span>
+        </button>
+      </div>
+
+      <!-- Sub-tab selector (tier 2) -->
+      <div class="mc-subtabs" id="subTabBar">
+        <div class="mc-subtab-group active" data-category="wallet">
+          <button class="cp-tab active" data-tab="overview">Overview</button>
+          <button class="cp-tab" data-tab="earning">Earning</button>
+          <button class="cp-tab" data-tab="spending">Spending</button>
+        </div>
+        <div class="mc-subtab-group" data-category="network">
+          <button class="cp-tab" data-tab="network">Peers</button>
+          <button class="cp-tab" data-tab="agents">Agents</button>
+        </div>
+        <div class="mc-subtab-group" data-category="intelligence">
+          <button class="cp-tab" data-tab="brain">Brain</button>
+          <button class="cp-tab" data-tab="memory">Memory</button>
+          <button class="cp-tab" data-tab="education">Education</button>
+        </div>
+        <div class="mc-subtab-group" data-category="services">
+          <button class="cp-tab" data-tab="reputation">Reputation</button>
+          <button class="cp-tab" data-tab="escrow">Escrow</button>
+          <button class="cp-tab" data-tab="messages">Messages</button>
+          <button class="cp-tab" data-tab="oracles">Oracles</button>
+        </div>
+        <div class="mc-subtab-group" data-category="system">
+          <button class="cp-tab" data-tab="diagnostics">Diagnostics</button>
+        </div>
+      </div>
+
+      <!-- ── OVERVIEW ────────────────────────────────────────── -->
+      <div class="cp-pane active" id="pane-overview">
+        <div class="cp-stats" id="overviewStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="os-balance">-</div><div class="cp-stat-lbl">Balance (sats)</div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="os-earned">-</div><div class="cp-stat-lbl">Total Earned</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-spent">-</div><div class="cp-stat-lbl">Total Spent</div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="os-net">-</div><div class="cp-stat-lbl">Net Income</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-calls">-</div><div class="cp-stat-lbl">Calls Served</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-uptime">-</div><div class="cp-stat-lbl">Uptime</div></div>
+        </div>
+
+        <div class="cp-stats" id="overviewIndelibleStats" style="display:none;">
+          <div class="cp-stat"><div class="cp-stat-num" id="os-saves">-</div><div class="cp-stat-lbl">Total Saves</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-loads">-</div><div class="cp-stat-lbl">Total Loads</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-agents">-</div><div class="cp-stat-lbl">Active Agents</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-saves-today">-</div><div class="cp-stat-lbl">Saves Today</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="os-onchain-bytes">-</div><div class="cp-stat-lbl">On-Chain Bytes</div></div>
+        </div>
+        <div id="overviewChart" style="display:none;margin-bottom:1rem;">
+          <h4 style="font-size:.85rem;margin-bottom:.5rem;color:var(--muted);">30-Day Activity</h4>
+          <canvas id="activityChart" height="120"></canvas>
+        </div>
+
+        <h4 style="font-size:.85rem;margin-bottom:.5rem;color:var(--muted);">Agent System Flow</h4>
+        <div class="cp-pipeline" id="pipeline">
+          <div class="cp-pipe-step" id="pipe-wallet">Wallet</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step" id="pipe-discover">Discover</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step" id="pipe-earn">Earn</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step" id="pipe-spend">Spend</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step" id="pipe-brain">Brain</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step" id="pipe-memory">Memory</div>
+        </div>
+
+        <div class="cp-grid" style="margin-top:1rem;">
+          <div class="cp-card">
+            <h3>Capabilities</h3>
+            <table class="cp-table" id="overviewCaps">
+              <thead><tr><th>Name</th><th class="num">Price</th><th class="num">Calls</th><th class="num">Revenue</th></tr></thead>
+              <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
+            </table>
           </div>
-          <div>
-            <div class="field">
-              <label for="capabilityParams">Capability Params (JSON)</label>
-              <textarea id="capabilityParams">{"hostname":"clawsats.com","type":"A"}</textarea>
-            </div>
-            <div class="panel-actions">
-              <button class="btn btn-primary" id="btnHire">Hire Claw</button>
-            </div>
-            <p class="panel-note">This calls your own OpenClaw JSON-RPC <span class="inline-code">hireClaw</span> method, so payment uses your wallet automatically.</p>
+          <div class="cp-card">
+            <h3>Activity Feed</h3>
+            <div class="cp-output cp-output-tall" id="overviewFeed">Connect to load...</div>
           </div>
         </div>
-        <div class="panel-output" id="hireOut">Ready.</div>
       </div>
+
+      <!-- ── EARNING ─────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-earning">
+        <div class="cp-stats" id="earningStats">
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="es-earned">-</div><div class="cp-stat-lbl">Total Earned</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-calls">-</div><div class="cp-stat-lbl">Calls Served</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-callers">-</div><div class="cp-stat-lbl">Unique Callers</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-fees">-</div><div class="cp-stat-lbl">Fees Collected</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-referrals">-</div><div class="cp-stat-lbl">Referral Sats</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Revenue by Capability</h3>
+          <table class="cp-table" id="earningTable">
+            <thead><tr><th>Capability</th><th class="num">Price</th><th class="num">Calls</th><th class="num">Revenue (sats)</th></tr></thead>
+            <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── SPENDING ────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-spending">
+        <div class="cp-stats" id="spendingStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-spent">-</div><div class="cp-stat-lbl">Total Spent</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-hires">-</div><div class="cp-stat-lbl">Total Hires</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-fees">-</div><div class="cp-stat-lbl">Fees Paid</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-mining">-</div><div class="cp-stat-lbl">Mining Fees</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Recent Hires</h3>
+          <table class="cp-table" id="spendingTable">
+            <thead><tr><th>Capability</th><th>Peer</th><th class="num">Cost</th><th>When</th></tr></thead>
+            <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── NETWORK ─────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-network">
+        <div class="cp-stats" id="networkStats">
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="ns-healthy">-</div><div class="cp-stat-lbl">Healthy Peers</div></div>
+          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="ns-stale">-</div><div class="cp-stat-lbl">Stale Peers</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ns-new">-</div><div class="cp-stat-lbl">New This Week</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ns-total">-</div><div class="cp-stat-lbl">Total Peers</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Peer List</h3>
+          <table class="cp-table" id="networkTable">
+            <thead><tr><th>Identity</th><th>Endpoint</th><th class="num">Rep</th><th>Last Seen</th></tr></thead>
+            <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── BRAIN ───────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-brain">
+        <div class="cp-stats" id="brainStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-pending">-</div><div class="cp-stat-lbl">Pending</div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="bs-completed">-</div><div class="cp-stat-lbl">Completed</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-failed">-</div><div class="cp-stat-lbl">Failed</div></div>
+          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="bs-approval">-</div><div class="cp-stat-lbl">Needs Approval</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-auto">-</div><div class="cp-stat-lbl">Auto-Approved</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-conf">-</div><div class="cp-stat-lbl">Avg Confidence</div></div>
+        </div>
+        <div class="cp-grid">
+          <div class="cp-card">
+            <h3>Circuit Breakers</h3>
+            <div id="brainBreakers" style="font-size:.85rem;color:var(--muted);">None open</div>
+          </div>
+          <div class="cp-card">
+            <h3>Recent Jobs</h3>
+            <div class="cp-output" id="brainJobs">Connect to load...</div>
+          </div>
+        </div>
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Recent Decisions</h3>
+          <div class="cp-output cp-output-tall" id="brainEvents">Connect to load...</div>
+        </div>
+      </div>
+
+      <!-- ── MEMORY ──────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-memory">
+        <div class="cp-stats" id="memoryStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-records">-</div><div class="cp-stat-lbl">On-Chain Records</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-index">-</div><div class="cp-stat-lbl">Has Master Index</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Memory Details</h3>
+          <div class="cp-output" id="memoryDetails">Connect to load...</div>
+        </div>
+        <div class="cp-card" id="sessionBrowserCard" style="margin-top:1rem;display:none;">
+          <h3>Session Browser</h3>
+          <table class="cp-table" id="sessionTable">
+            <thead><tr><th>Agent</th><th class="num">Sessions</th><th class="num">Messages</th><th class="num">Bytes</th></tr></thead>
+            <tbody><tr><td colspan="4" style="color:var(--muted)">No session data</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── EDUCATION ───────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-education">
+        <div class="cp-stats" id="eduStats">
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="edu-completed">-</div><div class="cp-stat-lbl">Courses Done</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="edu-available">-</div><div class="cp-stat-lbl">Available</div></div>
+        </div>
+        <div class="cp-grid">
+          <div class="cp-card">
+            <h3>Course Flow Check</h3>
+            <div class="cp-field">
+              <label for="courseSelect">Course</label>
+              <select id="courseSelect"></select>
+            </div>
+            <div class="cp-actions">
+              <button class="btn btn-primary" id="btnLoadCourses">Load Courses</button>
+              <button class="btn btn-outline" id="btnLoadCourse">Load Quiz</button>
+            </div>
+            <div id="quizWrap" style="margin-top:.8rem;"></div>
+            <div class="cp-actions" id="quizActions" style="display:none;">
+              <button class="btn btn-primary" id="btnSubmitQuiz">Submit Answers</button>
+            </div>
+            <div class="cp-output" id="courseOut">Load courses to inspect.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── AGENTS ──────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-agents">
+        <div class="mc-indelible-notice" id="indelible-notice-agents" style="display:none;">
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
+          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One in your Claw configuration to view registered agents.</p></div>
+        </div>
+        <div class="cp-stats" id="agentStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="ag-count">-</div><div class="cp-stat-lbl">Registered Agents</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ag-caps">-</div><div class="cp-stat-lbl">Total Capabilities</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Agent Roster</h3>
+          <table class="cp-table" id="agentRoster">
+            <thead><tr><th>Name</th><th>PubKey</th><th>Capabilities</th><th>Created</th></tr></thead>
+            <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── REPUTATION ───────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-reputation">
+        <div class="mc-indelible-notice" id="indelible-notice-reputation" style="display:none;">
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
+          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view trust scores and submit attestations.</p></div>
+        </div>
+        <div class="cp-stats" id="repStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="rp-agents">-</div><div class="cp-stat-lbl">Rated Agents</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="rp-attestations">-</div><div class="cp-stat-lbl">Total Attestations</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Trust Scores</h3>
+          <table class="cp-table" id="reputationTable">
+            <thead><tr><th>Agent</th><th class="num">Score</th><th class="num">Avg Rating</th><th class="num">Volume</th><th class="num">Diversity</th><th class="num">Recency</th><th class="num">Attestations</th></tr></thead>
+            <tbody><tr><td colspan="7" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+          </table>
+        </div>
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Submit Attestation</h3>
+          <div class="cp-grid">
+            <div>
+              <div class="cp-field"><label for="attestAgent">Agent PubKey</label><input id="attestAgent" placeholder="02abc..." autocomplete="off"></div>
+              <div class="cp-field"><label for="attestCap">Capability</label><input id="attestCap" placeholder="echo" autocomplete="off"></div>
+            </div>
+            <div>
+              <div class="cp-field"><label for="attestRating">Rating (1-5)</label><input id="attestRating" type="number" min="1" max="5" value="5"></div>
+              <div class="cp-actions"><button class="btn btn-primary" id="btnAttest">Submit</button></div>
+            </div>
+          </div>
+          <div class="cp-output" id="attestOut">Ready.</div>
+        </div>
+      </div>
+
+      <!-- ── ESCROW ───────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-escrow">
+        <div class="mc-indelible-notice" id="indelible-notice-escrow" style="display:none;">
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
+          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view and manage escrow contracts.</p></div>
+        </div>
+        <div class="cp-stats" id="escrowStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="esc-active">-</div><div class="cp-stat-lbl">Active Escrows</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="esc-total-sats">-</div><div class="cp-stat-lbl">Total Locked (sats)</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Escrow List</h3>
+          <table class="cp-table" id="escrowTable">
+            <thead><tr><th>ID</th><th>Status</th><th class="num">Amount</th><th>Payee</th><th>Description</th><th>Expires</th></tr></thead>
+            <tbody><tr><td colspan="6" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── MESSAGES ─────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-messages">
+        <div class="mc-indelible-notice" id="indelible-notice-messages" style="display:none;">
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
+          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view encrypted message channels.</p></div>
+        </div>
+        <div class="cp-stats" id="msgStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="msg-channels">-</div><div class="cp-stat-lbl">Channels</div></div>
+        </div>
+        <div class="cp-card">
+          <h3>Encrypted Channels</h3>
+          <table class="cp-table" id="messageTable">
+            <thead><tr><th>Participants</th><th>Last Action</th><th>Last Active</th></tr></thead>
+            <tbody><tr><td colspan="3" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── ORACLES ──────────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-oracles">
+        <div class="mc-indelible-notice" id="indelible-notice-oracles" style="display:none;">
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
+          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view oracle registries and attestations.</p></div>
+        </div>
+        <div class="cp-stats" id="oracleStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="or-registries">-</div><div class="cp-stat-lbl">Oracle Registries</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="or-attestations">-</div><div class="cp-stat-lbl">Attestations</div></div>
+        </div>
+        <div class="cp-grid">
+          <div class="cp-card">
+            <h3>Oracle Registries</h3>
+            <table class="cp-table" id="oracleRegTable">
+              <thead><tr><th>Agent</th><th>Data Types</th><th>Endpoint</th></tr></thead>
+              <tbody><tr><td colspan="3" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+            </table>
+          </div>
+          <div class="cp-card">
+            <h3>Attestation History</h3>
+            <table class="cp-table" id="oracleAttTable">
+              <thead><tr><th>Data Type</th><th>Value</th><th>Source</th><th class="num">Confidence</th><th>When</th></tr></thead>
+              <tbody><tr><td colspan="5" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DIAGNOSTICS ─────────────────────────────────────── -->
+      <div class="cp-pane" id="pane-diagnostics">
+        <div class="cp-stats" id="diagStats">
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-utxo-total">-</div><div class="cp-stat-lbl">UTXO Total</div></div>
+          <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="dx-utxo-avail">-</div><div class="cp-stat-lbl">Available</div></div>
+          <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="dx-utxo-locked">-</div><div class="cp-stat-lbl">Locked</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-utxo-stuck">-</div><div class="cp-stat-lbl">Stuck</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-503">-</div><div class="cp-stat-lbl">503s Returned</div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="dx-concurrency">-</div><div class="cp-stat-lbl">Concurrency Slots</div></div>
+        </div>
+
+        <div class="cp-grid">
+          <div class="cp-card">
+            <h3>Connection Test</h3>
+            <div class="cp-actions">
+              <button class="btn btn-primary" id="btnTestHealth">Test Health</button>
+            </div>
+            <div class="cp-output" id="diagHealth">Click to test...</div>
+          </div>
+          <div class="cp-card">
+            <h3>Wallet Info</h3>
+            <div class="cp-output" id="diagWallet">Connect to load...</div>
+          </div>
+        </div>
+
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Manual Hire Test</h3>
+          <div class="cp-grid">
+            <div>
+              <div class="cp-field">
+                <label for="targetEndpoint">Target Claw Endpoint</label>
+                <input id="targetEndpoint" placeholder="http://other-claw:3321" autocomplete="off">
+              </div>
+              <div class="cp-field">
+                <label for="capability">Capability</label>
+                <select id="capability">
+                  <option value="dns_resolve">dns_resolve</option>
+                  <option value="fetch_url">fetch_url</option>
+                  <option value="peer_health_check">peer_health_check</option>
+                  <option value="echo">echo</option>
+                </select>
+              </div>
+              <div class="cp-field">
+                <label for="maxTotalSats">Max Total Sats</label>
+                <input id="maxTotalSats" type="number" min="1" placeholder="50">
+              </div>
+            </div>
+            <div>
+              <div class="cp-field">
+                <label for="capabilityParams">Params (JSON)</label>
+                <textarea id="capabilityParams">{"hostname":"clawsats.com","type":"A"}</textarea>
+              </div>
+              <div class="cp-actions">
+                <button class="btn btn-primary" id="btnHire">Hire Claw</button>
+              </div>
+            </div>
+          </div>
+          <div class="cp-output" id="hireOut">Ready.</div>
+        </div>
+
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Diagnostic Export</h3>
+          <p style="color:var(--muted);font-size:.85rem;margin-bottom:.6rem;">Download a JSON snapshot of your Claw's operational state. Secrets (rootKeyHex, apiKey) are automatically redacted.</p>
+          <button class="btn btn-primary" id="btnExportDiag">Download Report</button>
+        </div>
+
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Raw /api/status</h3>
+          <div class="cp-output cp-output-tall" id="diagRaw">Connect to load...</div>
+        </div>
+      </div>
+
     </div>
   </section>
 

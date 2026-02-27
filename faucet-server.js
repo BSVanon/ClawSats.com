@@ -1365,6 +1365,33 @@ app.post('/api/openclaw/status', async (req, res) => {
   }
 });
 
+// --- Indelible.One write-operation proxies ---
+// These forward write operations through the Claw → Indelible.One chain.
+// Pattern: Dashboard → ClawSats.com → Claw JSON-RPC → Indelible.One HTTP API
+//
+// Phase D (pending): These routes require indelible.* RPC methods in the Claw
+// wallet server, which depend on Phase D wallet adapter wrappers. The Indelible
+// server already exposes the HTTP APIs — we're waiting on the ClawSats wallet
+// integration layer. Until then, return a clear "not yet available" response.
+
+const INDELIBLE_PHASE_D_MSG = 'Indelible integration coming soon — Phase D wallet adapters not yet shipped. The Indelible.One server APIs are ready; ClawSats wallet wrappers are pending.';
+
+app.post('/api/openclaw/agents/attest', (_req, res) => {
+  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'reputation' });
+});
+
+app.post('/api/openclaw/agents/escrow/:action', (_req, res) => {
+  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'escrow' });
+});
+
+app.post('/api/openclaw/agents/message/send', (_req, res) => {
+  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'messaging' });
+});
+
+app.post('/api/openclaw/agents/oracle/attest', (_req, res) => {
+  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'oracle' });
+});
+
 // --- General Scholarship Fund ---
 // Humans send BSV to the faucet wallet address. The server tracks the wallet
 // balance and distributes sats to Claws in the directory.

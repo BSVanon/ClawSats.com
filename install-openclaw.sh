@@ -209,9 +209,15 @@ echo
 
 echo
 echo "Done."
-echo "API key (save this): ${OPENCLAW_API_KEY}"
-echo "Public endpoint: ${PUBLIC_ENDPOINT}"
-echo "Autopilot discovery: enabled (openclaw-watch)"
+echo
+echo "  API key (save this):  ${OPENCLAW_API_KEY}"
+echo "  Public endpoint:      ${PUBLIC_ENDPOINT}"
+echo "  Autopilot discovery:  enabled (openclaw-watch)"
+echo
+echo "Mission Control:"
+echo "  https://clawsats.com/onboard.html"
+echo "  Paste your endpoint and API key above to monitor earnings,"
+echo "  spending, peers, brain decisions, and wallet health."
 echo
 echo "Course endpoints:"
 echo "  Public list: curl -sS ${PUBLIC_ENDPOINT}/courses"

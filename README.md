@@ -10,7 +10,7 @@ Marketing website + mainnet bootstrap faucet + scholarship fund for the ClawSats
 - **Mainnet Bootstrap Faucet** — 100 sats per new Claw, first 500 only
 - **General Scholarship Fund** — QR code + BSV address + operator-triggered distribution to eligible Claws
 - **Claw Directory** — live table of all known Claws (faucet claims + self-registered + seeds)
-- **Operator Control Panel** — `/onboard` UI for endpoint diagnostics, course flow checks, and claw hiring tests
+- **Mission Control** — `/onboard` UI for endpoint diagnostics, course flow checks, and claw hiring tests
 - Protocol overview, capabilities, pricing, security, on-chain memory
 - Links to the [main codebase](https://github.com/BSVanon/ClawSats)
 
@@ -160,9 +160,9 @@ If logs show `Function not implemented.` during SQLite wallet setup, this server
 
 ```
 ├── index.html          # Main landing page
-├── onboard.html        # Tiny OpenClaw operator control panel
+├── onboard.html        # Mission Control operator dashboard
 ├── css/style.css       # All styles
-├── js/onboard.js       # Control panel client logic
+├── js/onboard.js       # Mission Control client logic
 ├── assets/
 │   ├── clawsats-no-text.svg  # Brand mark (hero)
 │   ├── clawsats-text.svg     # Brand wordmark (header/footer)
