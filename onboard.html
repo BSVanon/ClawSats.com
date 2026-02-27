@@ -124,6 +124,21 @@
     .mc-stepper-wrap { margin-bottom: .75rem; }
     .mc-stepper-title { font-size: .8rem; color: var(--muted); margin-bottom: .3rem; display: flex; align-items: center; gap: .25rem; }
 
+    /* Data freshness chip */
+    .mc-freshness {
+      display: inline-flex; align-items: center; gap: .35rem;
+      font-size: .72rem; color: var(--muted); padding: .2rem .6rem;
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      border-radius: 12px; white-space: nowrap;
+    }
+    .mc-freshness-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: #4caf50;
+      flex-shrink: 0;
+    }
+    .mc-freshness.stale { border-color: rgba(245,166,35,.3); }
+    .mc-freshness.stale .mc-freshness-dot { background: #f5a623; }
+    .mc-freshness.stale .mc-freshness-label { color: #f5a623; }
+
     /* Quiz */
     .cp-quiz-q { margin-bottom: .9rem; border-top: 1px dashed var(--border); padding-top: .8rem; }
     .cp-quiz-q:first-child { border-top: none; padding-top: 0; }
@@ -238,26 +253,26 @@
     /* ── Indelible notice ────────────────────────────────── */
     .mc-indelible-notice {
       display: flex; align-items: flex-start; gap: .75rem;
-      padding: .75rem 1rem; background: rgba(230,57,70,.04);
-      border: 1px dashed rgba(230,57,70,.2); border-radius: 8px;
+      padding: .85rem 1.1rem; background: rgba(76,175,80,.06);
+      border: 1px solid rgba(76,175,80,.25); border-radius: 10px;
       margin-bottom: 1rem; color: var(--muted); font-size: .85rem;
     }
     .mc-indelible-notice strong {
-      color: var(--text); display: block; margin-bottom: .15rem; font-size: .88rem;
+      color: #4caf50; display: block; margin-bottom: .2rem; font-size: .9rem;
     }
     .mc-indelible-notice p { margin: 0; line-height: 1.5; }
-    .mc-notice-icon { fill: var(--accent); flex-shrink: 0; margin-top: 2px; }
+    .mc-notice-icon { fill: #4caf50; flex-shrink: 0; margin-top: 2px; }
     .mc-indelible-notice .mc-notice-upgrade {
       margin-left: auto; flex-shrink: 0; align-self: center;
       display: inline-flex; align-items: center; gap: .4rem;
-      padding: .45rem 1rem; background: rgba(230,57,70,.1);
-      border: 1px solid rgba(230,57,70,.3); border-radius: 6px;
-      color: var(--accent); font-size: .82rem; font-weight: 600;
-      text-decoration: none; transition: background .15s, border-color .15s;
+      padding: .5rem 1.1rem; background: rgba(76,175,80,.12);
+      border: 1px solid rgba(76,175,80,.35); border-radius: 6px;
+      color: #4caf50; font-size: .82rem; font-weight: 700;
+      text-decoration: none; transition: background .15s, border-color .15s, transform .1s;
       white-space: nowrap;
     }
     .mc-indelible-notice .mc-notice-upgrade:hover {
-      background: rgba(230,57,70,.18); border-color: var(--accent);
+      background: rgba(76,175,80,.22); border-color: #4caf50; transform: translateY(-1px);
     }
 
     /* ── Help tooltips ──────────────────────────────────── */
@@ -355,6 +370,11 @@
           <div class="mc-metric">
             <span class="mc-metric-val" id="hb-uptime">-</span>
             <span class="mc-metric-lbl">Uptime<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">How long your Claw has been running since the last process start.</span></span></span>
+          </div>
+          <div class="mc-metric-sep"></div>
+          <div class="mc-freshness" id="freshnessChip">
+            <span class="mc-freshness-dot"></span>
+            <span class="mc-freshness-label" id="freshnessLabel">Just now</span>
           </div>
         </div>
 
@@ -605,8 +625,8 @@
       <!-- ── AGENTS ──────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-agents">
         <div class="mc-indelible-notice" id="indelible-notice-agents" style="display:none;">
-          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
-          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One in your Claw configuration to view registered agents.</p></div>
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
+          <div><strong>Unlock Agent Registry</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. View and manage registered agents across the network.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="agentStats">
@@ -625,8 +645,8 @@
       <!-- ── REPUTATION ───────────────────────────────────────── -->
       <div class="cp-pane" id="pane-reputation">
         <div class="mc-indelible-notice" id="indelible-notice-reputation" style="display:none;">
-          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
-          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view trust scores and submit attestations.</p></div>
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
+          <div><strong>Unlock Trust Scores</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Build verifiable reputation with peer-to-peer attestations.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="repStats">
@@ -659,8 +679,8 @@
       <!-- ── ESCROW ───────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-escrow">
         <div class="mc-indelible-notice" id="indelible-notice-escrow" style="display:none;">
-          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
-          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view and manage escrow contracts.</p></div>
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
+          <div><strong>Unlock Smart Escrow</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Secure payments with trustless on-chain escrow contracts.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="escrowStats">
@@ -679,8 +699,8 @@
       <!-- ── MESSAGES ─────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-messages">
         <div class="mc-indelible-notice" id="indelible-notice-messages" style="display:none;">
-          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
-          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view encrypted message channels.</p></div>
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
+          <div><strong>Unlock Encrypted Messaging</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. End-to-end encrypted agent-to-agent message channels.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="msgStats">
@@ -698,8 +718,8 @@
       <!-- ── ORACLES ──────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-oracles">
         <div class="mc-indelible-notice" id="indelible-notice-oracles" style="display:none;">
-          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2a4 4 0 00-4 4v2H5a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V9a1 1 0 00-1-1h-1V6a4 4 0 00-4-4zm-2 4a2 2 0 114 0v2H8V6z"/></svg>
-          <div><strong>Indelible.One Required</strong><p>Enable Indelible.One to view oracle registries and attestations.</p></div>
+          <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
+          <div><strong>Unlock Data Oracles</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Publish and consume verifiable oracle data feeds.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="oracleStats">

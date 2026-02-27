@@ -5,6 +5,8 @@
   let currentCourse = null;
   let dashboardTimer = null;
   let connected = false;
+  let lastRefreshAt = 0;
+  let freshnessTimer = null;
 
   // ── Category → sub-tab mapping ────────────────────────────────
   const CATEGORIES = {
@@ -231,8 +233,10 @@
     try {
       statusData = await postJSON('/api/openclaw/status', { endpoint });
       connected = true;
+      lastRefreshAt = Date.now();
       el('connectStatus').innerHTML = '<span class="cp-badge cp-badge-ok">Connected</span>';
       renderAll(statusData);
+      startFreshnessTicker();
     } catch (err) {
       el('connectStatus').innerHTML = '<span class="cp-badge cp-badge-warn">Refresh failed</span> ' + err.message;
       // Update header to show warning state too
@@ -250,6 +254,30 @@
 
   function stopDashboardRefresh() {
     if (dashboardTimer) { clearInterval(dashboardTimer); dashboardTimer = null; }
+  }
+
+  // ── Data freshness chip ────────────────────────────────────
+
+  function startFreshnessTicker() {
+    if (freshnessTimer) return;
+    updateFreshnessChip();
+    freshnessTimer = setInterval(updateFreshnessChip, 1000);
+  }
+
+  function updateFreshnessChip() {
+    if (!lastRefreshAt) return;
+    const chip = el('freshnessChip');
+    const label = el('freshnessLabel');
+    if (!chip || !label) return;
+
+    const ago = Math.floor((Date.now() - lastRefreshAt) / 1000);
+    const STALE_SECS = 30;
+
+    if (ago < 3) label.textContent = 'Just now';
+    else if (ago < 60) label.textContent = ago + 's ago';
+    else label.textContent = Math.floor(ago / 60) + 'm ' + (ago % 60) + 's ago';
+
+    chip.classList.toggle('stale', ago > STALE_SECS);
   }
 
   // ── Header status + metrics bar ─────────────────────────────
@@ -293,6 +321,13 @@
       const notice = el('indelible-notice-' + tab);
       if (notice) notice.style.display = indelibleEnabled ? 'none' : 'flex';
     });
+
+    // Gate action buttons when Indelible is unavailable
+    const attestBtn = el('btnAttest');
+    if (attestBtn) {
+      attestBtn.disabled = !indelibleEnabled;
+      attestBtn.title = indelibleEnabled ? '' : 'Requires Indelible.One subscription';
+    }
   }
 
   // ── Render all tabs ──────────────────────────────────────────
