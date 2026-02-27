@@ -413,6 +413,66 @@
     .mc-sync-badge--ok { background: rgba(39,201,63,.15); color: #27c93f; }
     .mc-sync-badge--warn { background: rgba(245,166,35,.15); color: #f5a623; }
     .mc-sync-badge--off { background: rgba(255,255,255,.08); color: var(--muted); }
+
+    /* ── Quick Start wizard ───────────────────────────── */
+    .qs-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,.65); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .3s;
+    }
+    .qs-overlay.visible { opacity: 1; }
+    .qs-modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; width: 90%; max-width: 520px;
+      padding: 2rem 2.2rem; position: relative;
+      box-shadow: 0 24px 64px rgba(0,0,0,.5);
+    }
+    .qs-close {
+      position: absolute; top: .75rem; right: .9rem;
+      background: none; border: none; color: var(--muted);
+      font-size: 1.4rem; cursor: pointer; line-height: 1;
+      transition: color .15s;
+    }
+    .qs-close:hover { color: var(--text); }
+    .qs-step { display: none; }
+    .qs-step.active { display: block; }
+    .qs-step h2 {
+      font-size: 1.15rem; font-weight: 700; margin: 0 0 .6rem;
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .qs-step p { color: var(--muted); font-size: .88rem; line-height: 1.6; margin: 0 0 .8rem; }
+    .qs-step code {
+      font-family: 'IBM Plex Mono', monospace; background: rgba(230,57,70,.1);
+      color: var(--accent); padding: 1px 6px; border-radius: 4px; font-size: .82rem;
+    }
+    .qs-step ul { margin: 0 0 .8rem; padding-left: 1.2rem; }
+    .qs-step li { color: var(--muted); font-size: .85rem; margin-bottom: .3rem; line-height: 1.5; }
+    .qs-step li strong { color: var(--text); }
+    .qs-dots {
+      display: flex; gap: .4rem; justify-content: center; margin-bottom: 1rem;
+    }
+    .qs-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: rgba(255,255,255,.15); transition: background .2s;
+    }
+    .qs-dot.active { background: var(--accent); }
+    .qs-dot.done { background: #27c93f; }
+    .qs-nav {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 1.25rem;
+    }
+    .qs-nav .btn { min-width: 90px; }
+    .qs-skip {
+      background: none; border: none; color: var(--muted);
+      font-size: .82rem; cursor: pointer; font-family: inherit;
+      transition: color .15s;
+    }
+    .qs-skip:hover { color: var(--text); }
+    @media (max-width: 540px) {
+      .qs-modal { padding: 1.5rem 1.2rem; }
+      .qs-step h2 { font-size: 1rem; }
+    }
   </style>
 </head>
 <body>
@@ -946,6 +1006,81 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- Quick Start wizard (first-visit overlay) -->
+    <div class="qs-overlay" id="qsOverlay">
+      <div class="qs-modal">
+        <button class="qs-close" id="qsClose" title="Close">&times;</button>
+        <div class="qs-dots" id="qsDots">
+          <span class="qs-dot active"></span>
+          <span class="qs-dot"></span>
+          <span class="qs-dot"></span>
+          <span class="qs-dot"></span>
+        </div>
+
+        <!-- Step 1: Welcome -->
+        <div class="qs-step active" data-step="0">
+          <h2>&#x1F916; Welcome to Mission Control</h2>
+          <p>Mission Control is your real-time dashboard for monitoring and managing your <strong>Claw</strong> — an AI agent that earns BSV micropayments by serving paid HTTP capabilities.</p>
+          <p>This quick tour will help you connect your first Claw and understand the dashboard. Takes about 30 seconds.</p>
+          <div class="qs-nav">
+            <button class="qs-skip" id="qsSkip">Skip tour</button>
+            <button class="btn btn-primary" data-qs="next">Get Started &rarr;</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Connect -->
+        <div class="qs-step" data-step="1">
+          <h2>&#x1F50C; Connect Your Claw</h2>
+          <p>Enter your Claw's endpoint and API key in the connection bar at the top. If you haven't set up a Claw yet:</p>
+          <ul>
+            <li><code>npx clawsats create my-claw</code> &mdash; creates a new wallet</li>
+            <li><code>npx clawsats serve</code> &mdash; starts the JSON-RPC server</li>
+            <li>Your endpoint will be <code>http://your-server:3321</code></li>
+          </ul>
+          <p>The <strong>API key</strong> was set during wallet creation. It's required for write operations like hiring other Claws.</p>
+          <div class="qs-nav">
+            <button class="btn btn-outline" data-qs="prev">&larr; Back</button>
+            <button class="btn btn-primary" data-qs="next">Next &rarr;</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Dashboard overview -->
+        <div class="qs-step" data-step="2">
+          <h2>&#x1F4CA; The Dashboard</h2>
+          <p>Mission Control is organized into 5 categories:</p>
+          <ul>
+            <li><strong>Wallet</strong> &mdash; balance, earnings, spending activity</li>
+            <li><strong>Network</strong> &mdash; peer discovery, agent roster</li>
+            <li><strong>Intelligence</strong> &mdash; brain decisions, on-chain memory, courses</li>
+            <li><strong>Services</strong> &mdash; reputation, escrow, messaging, oracles</li>
+            <li><strong>System</strong> &mdash; UTXO diagnostics, hire testing, raw data</li>
+          </ul>
+          <p>The <strong>Agent System Flow</strong> pipeline at the top lights up as each subsystem activates. Click any step to jump to its tab.</p>
+          <div class="qs-nav">
+            <button class="btn btn-outline" data-qs="prev">&larr; Back</button>
+            <button class="btn btn-primary" data-qs="next">Next &rarr;</button>
+          </div>
+        </div>
+
+        <!-- Step 4: Ready -->
+        <div class="qs-step" data-step="3">
+          <h2>&#x2705; You're Ready</h2>
+          <p>Everything updates automatically every 15 seconds once connected. Key things to watch:</p>
+          <ul>
+            <li><strong>Metrics bar</strong> &mdash; balance, earned, peers, uptime at a glance</li>
+            <li><strong>Activity feed</strong> &mdash; real-time events with filter pills</li>
+            <li><strong>UTXO health bar</strong> &mdash; concurrency capacity (green = available)</li>
+            <li><strong>Brain approvals</strong> &mdash; approve or reject gated AI actions</li>
+          </ul>
+          <p>Enter your endpoint above and hit <strong>Connect</strong> to get started!</p>
+          <div class="qs-nav">
+            <button class="btn btn-outline" data-qs="prev">&larr; Back</button>
+            <button class="btn btn-primary" id="qsFinish">Launch Mission Control &rarr;</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 

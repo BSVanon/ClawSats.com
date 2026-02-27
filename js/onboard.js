@@ -148,6 +148,76 @@
     });
   }
 
+  // ── Quick Start wizard ─────────────────────────────────────
+
+  const QS_KEY = 'clawsats_qs_done';
+  let qsStep = 0;
+
+  function shouldShowQuickStart() {
+    try { return !localStorage.getItem(QS_KEY); } catch { return false; }
+  }
+
+  function showQuickStart() {
+    const overlay = el('qsOverlay');
+    if (!overlay) return;
+    qsStep = 0;
+    updateQsStep();
+    overlay.style.display = '';
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+  }
+
+  function dismissQuickStart() {
+    const overlay = el('qsOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('visible');
+    setTimeout(() => { overlay.style.display = 'none'; }, 300);
+    try { localStorage.setItem(QS_KEY, '1'); } catch {}
+  }
+
+  function updateQsStep() {
+    const steps = document.querySelectorAll('.qs-step');
+    const dots = document.querySelectorAll('.qs-dot');
+    steps.forEach((s, i) => s.classList.toggle('active', i === qsStep));
+    dots.forEach((d, i) => {
+      d.classList.toggle('active', i === qsStep);
+      d.classList.toggle('done', i < qsStep);
+    });
+  }
+
+  function initQuickStart() {
+    const overlay = el('qsOverlay');
+    if (!overlay) return;
+
+    // Initially hidden via display style
+    overlay.style.display = 'none';
+
+    // Show on first visit
+    if (shouldShowQuickStart()) showQuickStart();
+
+    // Close button
+    el('qsClose').addEventListener('click', dismissQuickStart);
+
+    // Finish button
+    el('qsFinish').addEventListener('click', dismissQuickStart);
+
+    // Skip button
+    el('qsSkip').addEventListener('click', dismissQuickStart);
+
+    // Next/Prev navigation
+    overlay.addEventListener('click', function(ev) {
+      const btn = ev.target.closest('[data-qs]');
+      if (!btn) return;
+      const action = btn.dataset.qs;
+      if (action === 'next' && qsStep < 3) { qsStep++; updateQsStep(); }
+      else if (action === 'prev' && qsStep > 0) { qsStep--; updateQsStep(); }
+    });
+
+    // Close on overlay background click
+    overlay.addEventListener('click', function(ev) {
+      if (ev.target === overlay) dismissQuickStart();
+    });
+  }
+
   // ── Tab switching ────────────────────────────────────────────
 
   function initTabs() {
@@ -1247,6 +1317,7 @@
     initTabs();
     initPipelineClicks();
     initFeedFilters();
+    initQuickStart();
     applyCapabilityTemplate();
 
     // Brain approval delegation
