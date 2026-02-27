@@ -134,6 +134,22 @@ pre code { background: none; padding: 0; color: var(--text); }
   font-weight: 600 !important;
 }
 .nav-mission-control:hover { color: #3dff55 !important; text-shadow: 0 0 12px rgba(39,201,63,.65); }
+.nav-mc-btn {
+  font-size: 1rem !important;
+  padding: .6rem 1.5rem !important;
+  background: linear-gradient(135deg, #27c93f, #1fa833) !important;
+  color: var(--white) !important;
+  border-radius: 8px;
+  font-weight: 700 !important;
+  letter-spacing: .02em;
+  box-shadow: 0 0 12px rgba(39,201,63,.35);
+  margin-left: .5rem;
+}
+.nav-mc-btn:hover {
+  background: linear-gradient(135deg, #3dff55, #27c93f) !important;
+  box-shadow: 0 0 20px rgba(39,201,63,.55);
+  transform: translateY(-1px);
+}
 .nav-menu-btn {
   display: none;
   width: 38px;
