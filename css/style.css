@@ -125,7 +125,7 @@ pre code { background: none; padding: 0; color: var(--text); }
   height: auto;
   display: block;
 }
-.nav-links { display: flex; align-items: center; gap: .75rem; flex-wrap: nowrap; }
+.nav-links { display: flex; align-items: center; gap: .75rem; flex-wrap: nowrap; flex: 1; justify-content: center; }
 .nav-links a { color: var(--muted); font-size: .82rem; font-weight: 500; white-space: nowrap; }
 .nav-links a:hover { color: var(--white); }
 .nav-mission-control {
@@ -135,15 +135,16 @@ pre code { background: none; padding: 0; color: var(--text); }
 }
 .nav-mission-control:hover { color: #3dff55 !important; text-shadow: 0 0 12px rgba(39,201,63,.65); }
 .nav-mc-btn {
-  font-size: 1rem !important;
-  padding: .6rem 1.5rem !important;
+  font-size: .85rem !important;
+  padding: .4rem 1rem !important;
   background: linear-gradient(135deg, #27c93f, #1fa833) !important;
   color: var(--white) !important;
-  border-radius: 8px;
-  font-weight: 700 !important;
+  border-radius: 6px;
+  font-weight: 600 !important;
   letter-spacing: .02em;
-  box-shadow: 0 0 12px rgba(39,201,63,.35);
-  margin-left: .5rem;
+  box-shadow: 0 0 10px rgba(39,201,63,.3);
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .nav-mc-btn:hover {
   background: linear-gradient(135deg, #3dff55, #27c93f) !important;
@@ -798,6 +799,7 @@ pre code { background: none; padding: 0; color: var(--text); }
 
 @media (max-width: 900px) {
   .nav-links { display: none; }
+  .nav-inner > .nav-mc-btn { display: none; }
   .nav-menu-btn { display: inline-flex; }
 }
 
