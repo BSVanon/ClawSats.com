@@ -70,4 +70,25 @@ expect_any_status "/onboard" "200" "301"
 # Unfunded/missing wallet key can return 503; funded wallet should return 200 with address.
 expect_any_status "/api/scholarships/address" "200" "503"
 
-echo "Smoke test passed on port ${PORT}."
+# Phase D gating: write-operation proxies must return 501 (not wired yet)
+expect_post_status() {
+  local path="$1"
+  local expected="$2"
+  local code
+  code="$(curl -sS -o /tmp/clawsats-smoke.json -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -d '{}' "http://127.0.0.1:${PORT}${path}")"
+  if [[ "${code}" != "${expected}" ]]; then
+    echo "Smoke test failed: POST ${path} expected HTTP ${expected}, got ${code}."
+    cat /tmp/clawsats-smoke.json || true
+    exit 1
+  fi
+}
+
+expect_post_status "/api/openclaw/agents/cert/create" "501"
+expect_post_status "/api/openclaw/agents/attest" "501"
+expect_post_status "/api/openclaw/agents/escrow/create" "501"
+expect_post_status "/api/openclaw/agents/message/send" "501"
+expect_post_status "/api/openclaw/agents/oracle/attest" "501"
+expect_post_status "/api/openclaw/agents/oracle/register" "501"
+
+echo "Smoke test passed on port ${PORT} (including Phase D gating checks)."
