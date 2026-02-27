@@ -301,6 +301,7 @@
     updateHeaderStatus(d);
     updateMetricsBar(d);
     updateIndelibleNotices(d);
+    updatePipeline(d);
     renderOverview(d);
     renderEarning(d);
     renderSpending(d);
@@ -316,6 +317,51 @@
     renderDiagnostics(d);
   }
 
+  // ── Global pipeline stepper ────────────────────────────────
+
+  function updatePipeline(d) {
+    const wrap = el('stepperWrap');
+    if (wrap) wrap.style.display = '';
+
+    const econ = d.economy || {};
+    const wallet = d.wallet || {};
+    const light = (id, on) => {
+      const step = el(id);
+      if (step) step.classList.toggle('lit', on);
+    };
+    light('pipe-wallet', (wallet.balanceSats || 0) > 0);
+    light('pipe-brain', (d.brain?.completed || 0) > 0);
+    light('pipe-memory', (d.memory?.totalMemories || 0) > 0);
+    light('pipe-discover', (d.peers || []).length > 0);
+    light('pipe-earn', (econ.totalEarnedSats || 0) > 0);
+    light('pipe-spend', (econ.totalSpentSats || 0) > 0);
+  }
+
+  function initPipelineClicks() {
+    document.querySelectorAll('.cp-pipe-click').forEach(step => {
+      step.addEventListener('click', () => {
+        const nav = step.dataset.nav;
+        if (!nav) return;
+        const [category, tab] = nav.split('/');
+
+        // Switch category
+        const cats = document.querySelectorAll('.mc-cat');
+        cats.forEach(c => c.classList.remove('active'));
+        const catBtn = document.querySelector('.mc-cat[data-category="' + category + '"]');
+        if (catBtn) catBtn.classList.add('active');
+        activeCategory = category;
+
+        // Show correct sub-tab group
+        document.querySelectorAll('.mc-subtab-group').forEach(g => g.classList.remove('active'));
+        const group = document.querySelector('.mc-subtab-group[data-category="' + category + '"]');
+        if (group) group.classList.add('active');
+
+        // Activate the target sub-tab
+        activateSubTab(tab);
+      });
+    });
+  }
+
   // ── Overview tab ─────────────────────────────────────────────
 
   function renderOverview(d) {
@@ -329,18 +375,6 @@
     el('os-net').textContent = fmt(econ.netIncomeSats || 0);
     el('os-calls').textContent = fmt(rep.totalCallsServed || 0);
     el('os-uptime').textContent = uptimeFmt(d.uptime || 0);
-
-    // Pipeline: light up steps based on state
-    const light = (id, on) => {
-      const step = el(id);
-      if (step) step.classList.toggle('lit', on);
-    };
-    light('pipe-wallet', (wallet.balanceSats || 0) > 0);
-    light('pipe-discover', (d.peers || []).length > 0);
-    light('pipe-earn', (econ.totalEarnedSats || 0) > 0);
-    light('pipe-spend', (econ.totalSpentSats || 0) > 0);
-    light('pipe-brain', (d.brain?.completed || 0) > 0);
-    light('pipe-memory', (d.memory?.totalMemories || 0) > 0);
 
     // Capabilities table
     const caps = d.capabilities || [];
@@ -943,6 +977,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     loadSaved();
     initTabs();
+    initPipelineClicks();
     applyCapabilityTemplate();
 
     el('btnConnect').addEventListener('click', connect);

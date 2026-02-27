@@ -1357,7 +1357,7 @@ app.post('/api/openclaw/status', async (req, res) => {
 
   try {
     const endpoint = await normalizePublicEndpoint(req.body?.endpoint || '');
-    const status = await fetchOpenClawJson(`${endpoint}/api/status`, 12000);
+    const status = await fetchOpenClawJson(`${endpoint}/api/status`, 25000);
     res.json({ endpoint, ...status });
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);

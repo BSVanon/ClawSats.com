@@ -116,7 +116,13 @@
       min-width: 90px;
     }
     .cp-pipe-step.lit { border-color: var(--accent); color: var(--accent); background: rgba(230,57,70,.06); }
+    .cp-pipe-step.cp-pipe-click { cursor: pointer; transition: border-color .15s, color .15s, background .15s, transform .1s; }
+    .cp-pipe-step.cp-pipe-click:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
     .cp-pipe-arrow { color: var(--muted); font-size: .85rem; flex-shrink: 0; }
+
+    /* Stepper wrapper (global) */
+    .mc-stepper-wrap { margin-bottom: .75rem; }
+    .mc-stepper-title { font-size: .8rem; color: var(--muted); margin-bottom: .3rem; display: flex; align-items: center; gap: .25rem; }
 
     /* Quiz */
     .cp-quiz-q { margin-bottom: .9rem; border-top: 1px dashed var(--border); padding-top: .8rem; }
@@ -366,6 +372,24 @@
         </div>
       </div>
 
+      <!-- Agent System Flow (global stepper — visible across all tabs) -->
+      <div class="mc-stepper-wrap" id="stepperWrap" style="display:none;">
+        <h4 class="mc-stepper-title">Agent System Flow<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Each step lights up when that subsystem is active. Click any step to jump to its tab. A fully-lit pipeline means your Claw is fully operational.</span></span></h4>
+        <div class="cp-pipeline" id="pipeline">
+          <div class="cp-pipe-step cp-pipe-click" id="pipe-wallet" data-nav="wallet/overview" title="Wallet balance &gt; 0 &rarr; Overview tab">Wallet</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step cp-pipe-click" id="pipe-brain" data-nav="intelligence/brain" title="Brain completed &ge; 1 job &rarr; Brain tab">Brain</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step cp-pipe-click" id="pipe-memory" data-nav="intelligence/memory" title="On-chain memory records exist &rarr; Memory tab">Memory</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step cp-pipe-click" id="pipe-discover" data-nav="network/network" title="At least 1 peer known &rarr; Peers tab">Discover</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step cp-pipe-click" id="pipe-earn" data-nav="wallet/earning" title="Total earned &gt; 0 sats &rarr; Earning tab">Earn</div>
+          <div class="cp-pipe-arrow">&rarr;</div>
+          <div class="cp-pipe-step cp-pipe-click" id="pipe-spend" data-nav="wallet/spending" title="Total spent &gt; 0 sats &rarr; Spending tab">Spend</div>
+        </div>
+      </div>
+
       <!-- Category selector (tier 1) -->
       <div class="mc-categories" id="categoryBar">
         <button class="mc-cat active" data-category="wallet" title="Balance, earnings, and spending">
@@ -440,22 +464,7 @@
           <canvas id="activityChart" height="120"></canvas>
         </div>
 
-        <h4 style="font-size:.85rem;margin-bottom:.5rem;color:var(--muted);">Agent System Flow<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Each step lights up red when that subsystem is active. A fully-lit pipeline means your Claw has funded wallet, found peers, earned and spent sats, made brain decisions, and written on-chain memories.</span></span></h4>
-        <div class="cp-pipeline" id="pipeline">
-          <div class="cp-pipe-step" id="pipe-wallet" title="Lights up when wallet balance > 0">Wallet</div>
-          <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-discover" title="Lights up when at least 1 peer is known">Discover</div>
-          <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-earn" title="Lights up when total earned > 0 sats">Earn</div>
-          <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-spend" title="Lights up when total spent > 0 sats">Spend</div>
-          <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-brain" title="Lights up when brain has completed at least 1 job">Brain</div>
-          <div class="cp-pipe-arrow">&rarr;</div>
-          <div class="cp-pipe-step" id="pipe-memory" title="Lights up when at least 1 on-chain memory record exists. Use writeMemory RPC to create records.">Memory</div>
-        </div>
-
-        <div class="cp-grid" style="margin-top:1rem;">
+        <div class="cp-grid">
           <div class="cp-card">
             <h3>Capabilities</h3>
             <table class="cp-table" id="overviewCaps">
@@ -516,7 +525,7 @@
         <div class="cp-card">
           <h3>Peer List</h3>
           <table class="cp-table" id="networkTable">
-            <thead><tr><th>Identity</th><th>Endpoint</th><th class="num">Rep</th><th>Last Seen</th></tr></thead>
+            <thead><tr><th>Identity</th><th>Endpoint</th><th class="num">Rep<span class="mc-help">?<span class="mc-help-tip">Reputation score 0-100. Increases on successful interactions, decreases on failures.</span></span></th><th>Last Seen</th></tr></thead>
             <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
           </table>
         </div>
@@ -627,7 +636,7 @@
         <div class="cp-card">
           <h3>Trust Scores</h3>
           <table class="cp-table" id="reputationTable">
-            <thead><tr><th>Agent</th><th class="num">Score</th><th class="num">Avg Rating</th><th class="num">Volume</th><th class="num">Diversity</th><th class="num">Recency</th><th class="num">Attestations</th></tr></thead>
+            <thead><tr><th>Agent</th><th class="num">Score<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Composite trust score combining all factors.</span></span></th><th class="num">Avg Rating</th><th class="num">Volume<span class="mc-help">?<span class="mc-help-tip">Total number of rated interactions.</span></span></th><th class="num">Diversity<span class="mc-help">?<span class="mc-help-tip">How many different peers have rated this agent.</span></span></th><th class="num">Recency<span class="mc-help">?<span class="mc-help-tip">How recent the attestations are. Higher = more recent activity.</span></span></th><th class="num">Attestations</th></tr></thead>
             <tbody><tr><td colspan="7" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
           </table>
         </div>
@@ -745,11 +754,11 @@
           <div class="cp-grid">
             <div>
               <div class="cp-field">
-                <label for="targetEndpoint">Target Claw Endpoint</label>
+                <label for="targetEndpoint">Target Claw Endpoint<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">The HTTP address of the Claw you want to hire. Your Claw will send a 402 payment to this endpoint.</span></span></label>
                 <input id="targetEndpoint" placeholder="http://other-claw:3321" autocomplete="off">
               </div>
               <div class="cp-field">
-                <label for="capability">Capability</label>
+                <label for="capability">Capability<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Which paid service to call on the target Claw. Each has a different price.</span></span></label>
                 <select id="capability">
                   <option value="dns_resolve">dns_resolve</option>
                   <option value="fetch_url">fetch_url</option>
@@ -758,7 +767,7 @@
                 </select>
               </div>
               <div class="cp-field">
-                <label for="maxTotalSats">Max Total Sats</label>
+                <label for="maxTotalSats">Max Total Sats<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Maximum sats your Claw will spend on this hire (capability price + 2 sat protocol fee + mining fee).</span></span></label>
                 <input id="maxTotalSats" type="number" min="1" placeholder="50">
               </div>
             </div>
