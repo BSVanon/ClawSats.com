@@ -1376,6 +1376,10 @@ app.post('/api/openclaw/status', async (req, res) => {
 
 const INDELIBLE_PHASE_D_MSG = 'Indelible integration coming soon — Phase D wallet adapters not yet shipped. The Indelible.One server APIs are ready; ClawSats wallet wrappers are pending.';
 
+app.post('/api/openclaw/agents/cert/create', (_req, res) => {
+  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'agents' });
+});
+
 app.post('/api/openclaw/agents/attest', (_req, res) => {
   res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'reputation' });
 });
@@ -1389,6 +1393,10 @@ app.post('/api/openclaw/agents/message/send', (_req, res) => {
 });
 
 app.post('/api/openclaw/agents/oracle/attest', (_req, res) => {
+  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'oracle' });
+});
+
+app.post('/api/openclaw/agents/oracle/register', (_req, res) => {
   res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'oracle' });
 });
 

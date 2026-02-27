@@ -8,6 +8,7 @@
   let lastRefreshAt = 0;
   let freshnessTimer = null;
   let connectData = null;
+  let phaseDAvailable = false; // true when Indelible write operations are live
 
   // ── Category → sub-tab mapping ────────────────────────────────
   const CATEGORIES = {
@@ -440,6 +441,7 @@
     updateMetricsBar(d);
     updateIndelibleNotices(d);
     updatePipeline(d);
+    updatePhaseDGating(d);
     renderOverview(d);
     renderEarning(d);
     renderSpending(d);
@@ -453,6 +455,25 @@
     renderMessages(d);
     renderOracles(d);
     renderDiagnostics(d);
+  }
+
+  // ── Phase D gating ──────────────────────────────────────────
+  // Disable write/action buttons when Phase D wallet adapters are not shipped.
+  // Checks d.indelible.phaseDReady (future flag) — defaults to false.
+
+  function updatePhaseDGating(d) {
+    const ind = d.indelible || {};
+    phaseDAvailable = !!(ind.enabled && ind.phaseDReady);
+
+    document.querySelectorAll('.mc-phase-d').forEach(btn => {
+      btn.disabled = !phaseDAvailable;
+      btn.title = phaseDAvailable ? '' : 'Phase D wallet adapters pending — UI ready, backend coming soon';
+    });
+
+    // Show/hide Phase D notice on write forms
+    document.querySelectorAll('.mc-phase-d-notice').forEach(notice => {
+      notice.style.display = phaseDAvailable ? 'none' : '';
+    });
   }
 
   // ── Global pipeline stepper ────────────────────────────────
@@ -958,16 +979,20 @@
     if (!card) return;
     if (!ind || !ind.enabled || !ind.sessions || Object.keys(ind.sessions).length === 0) {
       card.style.display = 'none';
+      const sd = el('sessionDetailCard');
+      if (sd) sd.style.display = 'none';
       return;
     }
     card.style.display = '';
-    const rows = Object.entries(ind.sessions).map(([addr, s]) =>
+    const entries = Object.entries(ind.sessions);
+    const rows = entries.map(([addr, s], i) =>
       '<tr><td>' + copyable(addr, 16) + '</td>' +
       '<td class="num">' + fmt(s.count || 0) + '</td>' +
       '<td class="num">' + fmt(s.messageCount || 0) + '</td>' +
-      '<td class="num">' + fmt(s.bytes || 0) + '</td></tr>'
+      '<td class="num">' + fmt(s.bytes || 0) + '</td>' +
+      '<td><button class="btn btn-sm" onclick="window._viewSession(' + i + ')">Details</button></td></tr>'
     ).join('');
-    el('sessionTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="4" style="color:var(--muted)">No sessions</td></tr>';
+    el('sessionTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="5" style="color:var(--muted)">No sessions</td></tr>';
   }
 
   // ── Agents tab ─────────────────────────────────────────────
@@ -995,6 +1020,27 @@
 
   // ── Reputation tab ─────────────────────────────────────────
 
+  function trustGauge(score) {
+    const s = Math.max(0, Math.min(100, score || 0));
+    const r = 13, circ = 2 * Math.PI * r;
+    const offset = circ - (s / 100) * circ;
+    const color = s >= 70 ? '#27c93f' : s >= 40 ? '#f5a623' : '#e63946';
+    return '<span class="mc-trust-gauge">' +
+      '<svg class="mc-trust-ring" viewBox="0 0 32 32">' +
+      '<circle class="mc-trust-ring-bg" cx="16" cy="16" r="' + r + '"/>' +
+      '<circle class="mc-trust-ring-fill" cx="16" cy="16" r="' + r + '" ' +
+      'stroke="' + color + '" stroke-dasharray="' + circ.toFixed(1) + '" ' +
+      'stroke-dashoffset="' + offset.toFixed(1) + '"/>' +
+      '</svg><span class="mc-trust-val" style="color:' + color + '">' + s.toFixed(0) + '</span></span>';
+  }
+
+  function starDisplay(rating) {
+    const n = Math.round(Math.max(0, Math.min(5, rating || 0)));
+    let s = '';
+    for (let i = 1; i <= 5; i++) s += '<span class="mc-star' + (i <= n ? ' lit' : '') + '">&#9733;</span>';
+    return '<span class="mc-stars" style="cursor:default;font-size:.9rem;">' + s + '</span>';
+  }
+
   function renderReputation(d) {
     const ind = d.indelible;
     if (!ind || !ind.enabled) {
@@ -1012,14 +1058,17 @@
     const rows = entries.map(([key, r]) => {
       const b = r.breakdown || {};
       return '<tr><td>' + copyable(key, 16) + '</td>' +
-        '<td class="num">' + (r.score || 0).toFixed(1) + '</td>' +
-        '<td class="num">' + (b.avgRating || 0).toFixed(1) + '</td>' +
+        '<td class="num">' + trustGauge(r.score) + '</td>' +
+        '<td class="num">' + starDisplay(b.avgRating) + '</td>' +
         '<td class="num">' + (b.volumeBonus || 0).toFixed(1) + '</td>' +
         '<td class="num">' + (b.diversityBonus || 0).toFixed(1) + '</td>' +
         '<td class="num">' + (b.recencyBonus || 0).toFixed(1) + '</td>' +
         '<td class="num">' + fmt(r.attestationCount || 0) + '</td></tr>';
     }).join('');
     el('reputationTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="7" style="color:var(--muted)">No reputation data</td></tr>';
+
+    // Populate agent picker dropdown from reputation keys + roster
+    populateAgentPicker(d);
   }
 
   // ── Escrow tab ─────────────────────────────────────────────
@@ -1030,7 +1079,7 @@
       el('esc-active').textContent = '-';
       el('esc-total-sats').textContent = '-';
       el('escrowTable').querySelector('tbody').innerHTML =
-        '<tr><td colspan="6" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr>';
+        '<tr><td colspan="7" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr>';
       return;
     }
     const escrows = ind.escrows || [];
@@ -1041,15 +1090,23 @@
       const cls = s === 'released' ? 'ok' : s === 'disputed' ? 'err' : s === 'expired' ? 'warn' : 'ok';
       return '<span class="cp-badge cp-badge-' + cls + '">' + s + '</span>';
     };
+    const escrowActions = (e) => {
+      const dis = phaseDAvailable ? '' : ' disabled title="Phase D pending"';
+      if (e.status === 'pending') return '<button class="btn btn-sm mc-phase-d"' + dis + ' onclick="window._escrowAction(\'' + e.id + '\',\'accept\')">Accept</button>';
+      if (e.status === 'accepted') return '<button class="btn btn-sm mc-phase-d"' + dis + ' onclick="window._escrowAction(\'' + e.id + '\',\'release\')">Release</button> ' +
+        '<button class="btn btn-sm btn-danger mc-phase-d"' + dis + ' onclick="window._escrowAction(\'' + e.id + '\',\'dispute\')">Dispute</button>';
+      return '<span style="color:var(--muted)">-</span>';
+    };
     const rows = escrows.map(e =>
       '<tr><td>' + short(e.id, 12) + '</td>' +
       '<td>' + statusBadge(e.status) + '</td>' +
       '<td class="num">' + fmt(e.amount || 0) + '</td>' +
       '<td>' + copyable(e.payeePubKey, 12) + '</td>' +
       '<td>' + short(e.description, 30) + '</td>' +
-      '<td>' + ago(e.expiresAt) + '</td></tr>'
+      '<td>' + ago(e.expiresAt) + '</td>' +
+      '<td>' + escrowActions(e) + '</td></tr>'
     ).join('');
-    el('escrowTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="6" style="color:var(--muted)">No escrows</td></tr>';
+    el('escrowTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="7" style="color:var(--muted)">No escrows</td></tr>';
   }
 
   // ── Messages tab ───────────────────────────────────────────
@@ -1059,17 +1116,20 @@
     if (!ind || !ind.enabled) {
       el('msg-channels').textContent = '-';
       el('messageTable').querySelector('tbody').innerHTML =
-        '<tr><td colspan="3" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr>';
+        '<tr><td colspan="4" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr>';
+      const tc = el('msgThreadCard');
+      if (tc) tc.style.display = 'none';
       return;
     }
     const channels = ind.channels || [];
     el('msg-channels').textContent = fmt(channels.length);
-    const rows = channels.map(ch =>
+    const rows = channels.map((ch, i) =>
       '<tr><td>' + (ch.participants || []).map(p => short(p, 12)).join(', ') + '</td>' +
       '<td>' + (ch.lastAction || '-') + '</td>' +
-      '<td>' + ago(ch.lastTimestamp) + '</td></tr>'
+      '<td>' + ago(ch.lastTimestamp) + '</td>' +
+      '<td><button class="btn btn-sm" onclick="window._viewThread(' + i + ')">View</button></td></tr>'
     ).join('');
-    el('messageTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="3" style="color:var(--muted)">No channels</td></tr>';
+    el('messageTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="4" style="color:var(--muted)">No channels</td></tr>';
   }
 
   // ── Oracles tab ────────────────────────────────────────────
@@ -1107,28 +1167,285 @@
     el('oracleAttTable').querySelector('tbody').innerHTML = attRows || '<tr><td colspan="5" style="color:var(--muted)">No attestations</td></tr>';
   }
 
+  // ── Agent picker ─────────────────────────────────────────────
+
+  function populateAgentPicker(d) {
+    const picker = el('attestAgent');
+    if (!picker || picker.tagName !== 'SELECT') return;
+    const existing = picker.value;
+    const agents = new Map();
+    // From roster
+    const roster = d.indelible && d.indelible.roster || [];
+    roster.forEach(a => { if (a.pubkey) agents.set(a.pubkey, a.name || a.pubkey.substring(0, 16) + '...'); });
+    // From reputation keys
+    const rep = d.indelible && d.indelible.reputation || {};
+    Object.keys(rep).forEach(k => { if (!agents.has(k)) agents.set(k, k.substring(0, 16) + '...'); });
+
+    picker.innerHTML = '<option value="">Select agent or type below...</option>';
+    agents.forEach((label, key) => {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = label + ' (' + key.substring(0, 8) + '...)';
+      picker.appendChild(opt);
+    });
+    if (existing && agents.has(existing)) picker.value = existing;
+  }
+
+  // ── Star picker interaction ─────────────────────────────────
+
+  function initStarPicker() {
+    const container = el('starPicker');
+    const hidden = el('attestRating');
+    if (!container || !hidden) return;
+
+    function setStars(n) {
+      hidden.value = n;
+      container.querySelectorAll('.mc-star').forEach(s => {
+        s.classList.toggle('lit', parseInt(s.dataset.val) <= n);
+      });
+    }
+
+    container.addEventListener('click', (ev) => {
+      const star = ev.target.closest('.mc-star');
+      if (star) setStars(parseInt(star.dataset.val));
+    });
+
+    container.addEventListener('mouseover', (ev) => {
+      const star = ev.target.closest('.mc-star');
+      if (!star) return;
+      const hoverVal = parseInt(star.dataset.val);
+      container.querySelectorAll('.mc-star').forEach(s => {
+        s.classList.toggle('preview', parseInt(s.dataset.val) <= hoverVal);
+      });
+    });
+
+    container.addEventListener('mouseleave', () => {
+      container.querySelectorAll('.mc-star').forEach(s => s.classList.remove('preview'));
+    });
+  }
+
   // ── Attestation submission ─────────────────────────────────
 
   async function submitAttestation() {
     const endpoint = el('endpoint').value.trim();
     const apiKey = el('apiKey').value.trim();
-    const agentPubKey = el('attestAgent').value.trim();
+    const pickerVal = el('attestAgent').value;
+    const customVal = el('attestAgentCustom') ? el('attestAgentCustom').value.trim() : '';
+    const agentPubKey = pickerVal || customVal;
     const capability = el('attestCap').value.trim();
     const rating = parseInt(el('attestRating').value, 10);
+    const notes = el('attestNotes') ? el('attestNotes').value.trim() : '';
     if (!endpoint || !apiKey || !agentPubKey || !capability || !rating) {
-      writeOut('attestOut', 'All fields required.');
+      writeOut('attestOut', 'All fields required (notes optional).');
       return;
     }
     writeOut('attestOut', 'Submitting...');
     try {
-      const data = await postJSON('/api/openclaw/agents/attest', {
-        endpoint, apiKey, agentPubKey, capability, rating
-      });
+      const body = { endpoint, apiKey, agentPubKey, capability, rating };
+      if (notes) body.notes = notes;
+      const data = await postJSON('/api/openclaw/agents/attest', body);
       writeOut('attestOut', data);
     } catch (err) {
       writeOut('attestOut', 'Failed: ' + err.message);
     }
   }
+
+  // ── Agent registration ──────────────────────────────────────
+
+  async function submitCreateAgent() {
+    const endpoint = el('endpoint').value.trim();
+    const apiKey = el('apiKey').value.trim();
+    const name = el('newAgentName').value.trim();
+    const caps = el('newAgentCaps').value.trim();
+    const agentEndpoint = el('newAgentEndpoint').value.trim();
+    if (!endpoint || !apiKey || !name || !caps) {
+      writeOut('createAgentOut', 'Name and capabilities are required.');
+      return;
+    }
+    writeOut('createAgentOut', 'Registering...');
+    try {
+      const data = await postJSON('/api/openclaw/agents/cert/create', {
+        endpoint, apiKey, name,
+        capabilities: caps.split(',').map(c => c.trim()).filter(Boolean),
+        agentEndpoint: agentEndpoint || undefined
+      });
+      writeOut('createAgentOut', data);
+    } catch (err) {
+      writeOut('createAgentOut', 'Failed: ' + err.message);
+    }
+  }
+
+  // ── Escrow creation ─────────────────────────────────────────
+
+  async function submitCreateEscrow() {
+    const endpoint = el('endpoint').value.trim();
+    const apiKey = el('apiKey').value.trim();
+    const payeePubKey = el('escPayee').value.trim();
+    const amount = parseInt(el('escAmount').value, 10);
+    const description = el('escDesc').value.trim();
+    const timeoutHours = parseInt(el('escTimeout').value, 10);
+    if (!endpoint || !apiKey || !payeePubKey || !amount || amount < 1) {
+      writeOut('createEscrowOut', 'Payee and amount are required.');
+      return;
+    }
+    writeOut('createEscrowOut', 'Creating escrow...');
+    try {
+      const data = await postJSON('/api/openclaw/agents/escrow/create', {
+        endpoint, apiKey, payeePubKey, amount,
+        description: description || undefined,
+        timeoutHours: timeoutHours || 24
+      });
+      writeOut('createEscrowOut', data);
+    } catch (err) {
+      writeOut('createEscrowOut', 'Failed: ' + err.message);
+    }
+  }
+
+  // ── Send message ────────────────────────────────────────────
+
+  async function submitSendMessage() {
+    const endpoint = el('endpoint').value.trim();
+    const apiKey = el('apiKey').value.trim();
+    const recipientPubKey = el('msgRecipient').value.trim();
+    const actionType = el('msgAction').value;
+    const payload = el('msgPayload').value.trim();
+    if (!endpoint || !apiKey || !recipientPubKey || !payload) {
+      writeOut('sendMsgOut', 'Recipient and message are required.');
+      return;
+    }
+    writeOut('sendMsgOut', 'Sending...');
+    try {
+      const data = await postJSON('/api/openclaw/agents/message/send', {
+        endpoint, apiKey, recipientPubKey, actionType, payload
+      });
+      writeOut('sendMsgOut', data);
+    } catch (err) {
+      writeOut('sendMsgOut', 'Failed: ' + err.message);
+    }
+  }
+
+  // ── Oracle attestation ──────────────────────────────────────
+
+  async function submitOracleAttest() {
+    const endpoint = el('endpoint').value.trim();
+    const apiKey = el('apiKey').value.trim();
+    const dataType = el('oraDataType').value.trim();
+    const value = el('oraValue').value.trim();
+    const source = el('oraSource').value.trim();
+    const confidence = parseFloat(el('oraConfidence').value);
+    if (!endpoint || !apiKey || !dataType || !value) {
+      writeOut('oracleAttestOut', 'Data type and value are required.');
+      return;
+    }
+    writeOut('oracleAttestOut', 'Signing...');
+    try {
+      const data = await postJSON('/api/openclaw/agents/oracle/attest', {
+        endpoint, apiKey, dataType, value,
+        source: source || undefined,
+        confidence: isNaN(confidence) ? undefined : confidence
+      });
+      writeOut('oracleAttestOut', data);
+    } catch (err) {
+      writeOut('oracleAttestOut', 'Failed: ' + err.message);
+    }
+  }
+
+  // ── Oracle registration ─────────────────────────────────────
+
+  async function submitOracleRegister() {
+    const endpoint = el('endpoint').value.trim();
+    const apiKey = el('apiKey').value.trim();
+    const dataTypes = el('oraRegTypes').value.trim();
+    const oracleEndpoint = el('oraRegEndpoint').value.trim();
+    if (!endpoint || !apiKey || !dataTypes) {
+      writeOut('oracleRegOut', 'Data types are required.');
+      return;
+    }
+    writeOut('oracleRegOut', 'Registering...');
+    try {
+      const data = await postJSON('/api/openclaw/agents/oracle/register', {
+        endpoint, apiKey,
+        dataTypes: dataTypes.split(',').map(t => t.trim()).filter(Boolean),
+        oracleEndpoint: oracleEndpoint || undefined
+      });
+      writeOut('oracleRegOut', data);
+    } catch (err) {
+      writeOut('oracleRegOut', 'Failed: ' + err.message);
+    }
+  }
+
+  // ── Escrow action handler ────────────────────────────────────
+
+  async function escrowAction(escrowId, action) {
+    const endpoint = el('endpoint').value.trim();
+    const apiKey = el('apiKey').value.trim();
+    if (!endpoint || !apiKey) { showToast('Connect first'); return; }
+    try {
+      const data = await postJSON('/api/openclaw/agents/escrow/' + action, {
+        endpoint, apiKey, escrowId
+      });
+      showToast(action + ' successful');
+      if (typeof loadDashboard === 'function') loadDashboard();
+    } catch (err) {
+      showToast('Failed: ' + err.message);
+    }
+  }
+  window._escrowAction = escrowAction;
+
+  // ── Message thread viewer ──────────────────────────────────
+
+  function viewThread(channelIndex) {
+    const ind = statusData && statusData.indelible;
+    const channels = ind && ind.channels || [];
+    const ch = channels[channelIndex];
+    const card = el('msgThreadCard');
+    if (!card || !ch) return;
+    card.style.display = '';
+    el('msgThreadTitle').textContent = 'Thread: ' + (ch.participants || []).map(p => p.substring(0, 12) + '...').join(' \u2194 ');
+    const lines = [];
+    lines.push('Participants: ' + (ch.participants || []).join(', '));
+    lines.push('Last action:  ' + (ch.lastAction || '-'));
+    lines.push('Last active:  ' + (ch.lastTimestamp ? new Date(ch.lastTimestamp).toLocaleString() : '-'));
+    if (ch.messages && ch.messages.length > 0) {
+      lines.push('');
+      lines.push('--- Messages ---');
+      ch.messages.forEach(m => {
+        lines.push('[' + (m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '?') + '] ' +
+          (m.from ? m.from.substring(0, 12) + '...' : '?') + ': ' + (m.payload || m.content || ''));
+      });
+    } else {
+      lines.push('');
+      lines.push('Full message history requires Phase D wallet adapters.');
+    }
+    writeOut('msgThreadOut', lines.join('\n'));
+  }
+  window._viewThread = viewThread;
+
+  // ── Session detail viewer ──────────────────────────────────
+
+  function viewSession(sessionIndex) {
+    const ind = statusData && statusData.indelible;
+    const sessions = ind && ind.sessions;
+    if (!sessions) return;
+    const entries = Object.entries(sessions);
+    const entry = entries[sessionIndex];
+    if (!entry) return;
+    const [addr, s] = entry;
+    const card = el('sessionDetailCard');
+    if (!card) return;
+    card.style.display = '';
+    const lines = [];
+    lines.push('Agent:         ' + addr);
+    lines.push('Sessions:      ' + fmt(s.count || 0));
+    lines.push('Messages:      ' + fmt(s.messageCount || 0));
+    lines.push('Total bytes:   ' + fmt(s.bytes || 0));
+    if (s.firstSeen) lines.push('First seen:    ' + new Date(s.firstSeen).toLocaleString());
+    if (s.lastSeen) lines.push('Last seen:     ' + new Date(s.lastSeen).toLocaleString());
+    if (s.topics) lines.push('Topics:        ' + (Array.isArray(s.topics) ? s.topics.join(', ') : s.topics));
+    if (s.txids) lines.push('TXIDs:         ' + (Array.isArray(s.txids) ? s.txids.length + ' stored' : '-'));
+    writeOut('sessionDetailOut', lines.join('\n'));
+  }
+  window._viewSession = viewSession;
 
   // ── Diagnostic export ───────────────────────────────────────
 
@@ -1318,6 +1635,7 @@
     initPipelineClicks();
     initFeedFilters();
     initQuickStart();
+    initStarPicker();
     applyCapabilityTemplate();
 
     // Brain approval delegation
@@ -1336,6 +1654,11 @@
     el('btnExportDiag').addEventListener('click', exportDiagnostics);
     el('capability').addEventListener('change', applyCapabilityTemplate);
     if (el('btnAttest')) el('btnAttest').addEventListener('click', submitAttestation);
+    if (el('btnCreateAgent')) el('btnCreateAgent').addEventListener('click', submitCreateAgent);
+    if (el('btnCreateEscrow')) el('btnCreateEscrow').addEventListener('click', submitCreateEscrow);
+    if (el('btnSendMsg')) el('btnSendMsg').addEventListener('click', submitSendMessage);
+    if (el('btnOracleAttest')) el('btnOracleAttest').addEventListener('click', submitOracleAttest);
+    if (el('btnOracleReg')) el('btnOracleReg').addEventListener('click', submitOracleRegister);
 
     // Auto-connect if endpoint was previously saved
     if (el('endpoint').value.trim()) {

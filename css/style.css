@@ -82,6 +82,10 @@ pre code { background: none; padding: 0; color: var(--text); }
   color: var(--accent);
 }
 .btn-outline:hover { background: rgba(230,57,70,.08); }
+.btn-danger {
+  background: #e63946; color: #fff; border-color: #e63946;
+}
+.btn-danger:hover { opacity: .9; transform: translateY(-1px); }
 
 /* ── Nav ── */
 

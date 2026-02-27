@@ -473,6 +473,37 @@
       .qs-modal { padding: 1.5rem 1.2rem; }
       .qs-step h2 { font-size: 1rem; }
     }
+
+    /* ── Star rating picker ──────────────────────────────── */
+    .mc-stars {
+      display: inline-flex; gap: 2px; cursor: pointer;
+      font-size: 1.3rem; line-height: 1;
+    }
+    .mc-star {
+      color: rgba(255,255,255,.15); transition: color .12s;
+      user-select: none;
+    }
+    .mc-star.lit { color: #f5a623; }
+    .mc-star:hover, .mc-stars:hover .mc-star { color: rgba(245,166,35,.4); }
+    .mc-stars:hover .mc-star.preview { color: #f5a623; }
+
+    /* ── Trust gauge (inline SVG circle) ─────────────────── */
+    .mc-trust-gauge {
+      display: inline-flex; align-items: center; gap: .4rem;
+    }
+    .mc-trust-ring {
+      width: 32px; height: 32px; transform: rotate(-90deg);
+    }
+    .mc-trust-ring-bg { fill: none; stroke: rgba(255,255,255,.08); stroke-width: 3; }
+    .mc-trust-ring-fill { fill: none; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .4s; }
+    .mc-trust-val { font-size: .82rem; font-weight: 700; }
+
+    /* ── Agent picker dropdown ───────────────────────────── */
+    .mc-agent-picker {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: .62rem .72rem; font-family: 'IBM Plex Mono', monospace; font-size: .86rem;
+    }
   </style>
 </head>
 <body>
@@ -770,9 +801,12 @@
         <div class="cp-card" id="sessionBrowserCard" style="margin-top:1rem;display:none;">
           <h3>Session Browser</h3>
           <table class="cp-table" id="sessionTable">
-            <thead><tr><th>Agent</th><th class="num">Sessions</th><th class="num">Messages</th><th class="num">Bytes</th></tr></thead>
-            <tbody><tr><td colspan="4" style="color:var(--muted)">No session data</td></tr></tbody>
+            <thead><tr><th>Agent</th><th class="num">Sessions</th><th class="num">Messages</th><th class="num">Bytes</th><th>Details</th></tr></thead>
+            <tbody><tr><td colspan="5" style="color:var(--muted)">No session data</td></tr></tbody>
           </table>
+          <div id="sessionDetailCard" style="margin-top:.75rem;display:none;">
+            <div class="cp-output" id="sessionDetailOut">Select a session above to view details.</div>
+          </div>
         </div>
       </div>
 
@@ -830,6 +864,21 @@
             <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
           </table>
         </div>
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Register Agent</h3>
+          <div class="cp-grid">
+            <div>
+              <div class="cp-field"><label for="newAgentName">Agent Name</label><input id="newAgentName" placeholder="my-claw-agent" autocomplete="off"></div>
+              <div class="cp-field"><label for="newAgentCaps">Capabilities</label><input id="newAgentCaps" placeholder="echo, fetch_url, bsv_mentor" autocomplete="off"></div>
+            </div>
+            <div>
+              <div class="cp-field"><label for="newAgentEndpoint">Endpoint URL</label><input id="newAgentEndpoint" placeholder="http://vps:3321" autocomplete="off"></div>
+              <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnCreateAgent" disabled>Register</button></div>
+            </div>
+          </div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending. Form will activate when backend ships.</div>
+          <div class="cp-output" id="createAgentOut">Ready.</div>
+        </div>
       </div>
 
       <!-- ── REPUTATION ───────────────────────────────────────── -->
@@ -854,14 +903,16 @@
           <h3>Submit Attestation</h3>
           <div class="cp-grid">
             <div>
-              <div class="cp-field"><label for="attestAgent">Agent PubKey</label><input id="attestAgent" placeholder="02abc..." autocomplete="off"></div>
+              <div class="cp-field"><label for="attestAgent">Agent</label><select id="attestAgent" class="mc-agent-picker"><option value="">Select agent or type pubkey...</option></select><input id="attestAgentCustom" placeholder="02abc... (or pick above)" autocomplete="off" style="margin-top:.35rem;"></div>
               <div class="cp-field"><label for="attestCap">Capability</label><input id="attestCap" placeholder="echo" autocomplete="off"></div>
             </div>
             <div>
-              <div class="cp-field"><label for="attestRating">Rating (1-5)</label><input id="attestRating" type="number" min="1" max="5" value="5"></div>
-              <div class="cp-actions"><button class="btn btn-primary" id="btnAttest">Submit</button></div>
+              <div class="cp-field"><label>Rating</label><div class="mc-stars" id="starPicker"><span class="mc-star lit" data-val="1">&#9733;</span><span class="mc-star lit" data-val="2">&#9733;</span><span class="mc-star lit" data-val="3">&#9733;</span><span class="mc-star lit" data-val="4">&#9733;</span><span class="mc-star lit" data-val="5">&#9733;</span></div><input id="attestRating" type="hidden" value="5"></div>
+              <div class="cp-field"><label for="attestNotes">Notes (optional)</label><input id="attestNotes" placeholder="Reliable echo service, fast response" autocomplete="off"></div>
+              <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnAttest" disabled>Submit</button></div>
             </div>
           </div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending.</div>
           <div class="cp-output" id="attestOut">Ready.</div>
         </div>
       </div>
@@ -880,9 +931,25 @@
         <div class="cp-card">
           <h3>Escrow List</h3>
           <table class="cp-table" id="escrowTable">
-            <thead><tr><th>ID</th><th>Status</th><th class="num">Amount</th><th>Payee</th><th>Description</th><th>Expires</th></tr></thead>
-            <tbody><tr><td colspan="6" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+            <thead><tr><th>ID</th><th>Status</th><th class="num">Amount</th><th>Payee</th><th>Description</th><th>Expires</th><th>Actions</th></tr></thead>
+            <tbody><tr><td colspan="7" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
           </table>
+        </div>
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Create Escrow</h3>
+          <div class="cp-grid">
+            <div>
+              <div class="cp-field"><label for="escPayee">Payee PubKey</label><input id="escPayee" placeholder="02abc..." autocomplete="off"></div>
+              <div class="cp-field"><label for="escAmount">Amount (sats)</label><input id="escAmount" type="number" min="1" placeholder="1000"></div>
+              <div class="cp-field"><label for="escDesc">Description</label><input id="escDesc" placeholder="Payment for echo service" autocomplete="off"></div>
+            </div>
+            <div>
+              <div class="cp-field"><label for="escTimeout">Timeout (hours)</label><input id="escTimeout" type="number" min="1" value="24"></div>
+              <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnCreateEscrow" disabled>Create</button></div>
+            </div>
+          </div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending.</div>
+          <div class="cp-output" id="createEscrowOut">Ready.</div>
         </div>
       </div>
 
@@ -899,9 +966,28 @@
         <div class="cp-card">
           <h3>Encrypted Channels</h3>
           <table class="cp-table" id="messageTable">
-            <thead><tr><th>Participants</th><th>Last Action</th><th>Last Active</th></tr></thead>
-            <tbody><tr><td colspan="3" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
+            <thead><tr><th>Participants</th><th>Last Action</th><th>Last Active</th><th>View</th></tr></thead>
+            <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
           </table>
+        </div>
+        <div class="cp-card" id="msgThreadCard" style="margin-top:1rem;display:none;">
+          <h3 id="msgThreadTitle">Thread</h3>
+          <div class="cp-output cp-output-tall" id="msgThreadOut">Select a channel above to view messages.</div>
+        </div>
+        <div class="cp-card" style="margin-top:1rem;">
+          <h3>Send Message</h3>
+          <div class="cp-grid">
+            <div>
+              <div class="cp-field"><label for="msgRecipient">Recipient PubKey</label><input id="msgRecipient" placeholder="02abc..." autocomplete="off"></div>
+              <div class="cp-field"><label for="msgAction">Action Type</label><select id="msgAction"><option value="general">General</option><option value="hire_request">Hire Request</option><option value="status_query">Status Query</option></select></div>
+            </div>
+            <div>
+              <div class="cp-field"><label for="msgPayload">Message</label><textarea id="msgPayload" placeholder="Hello from my Claw..."></textarea></div>
+              <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnSendMsg" disabled>Send</button></div>
+            </div>
+          </div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending.</div>
+          <div class="cp-output" id="sendMsgOut">Ready.</div>
         </div>
       </div>
 
@@ -930,6 +1016,26 @@
               <thead><tr><th>Data Type</th><th>Value</th><th>Source</th><th class="num">Confidence</th><th>When</th></tr></thead>
               <tbody><tr><td colspan="5" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
             </table>
+          </div>
+        </div>
+        <div class="cp-grid" style="margin-top:1rem;">
+          <div class="cp-card">
+            <h3>Sign Data Point</h3>
+            <div class="cp-field"><label for="oraDataType">Data Type</label><input id="oraDataType" placeholder="price/bsv-usd" autocomplete="off"></div>
+            <div class="cp-field"><label for="oraValue">Value</label><input id="oraValue" placeholder="42.50" autocomplete="off"></div>
+            <div class="cp-field"><label for="oraSource">Source</label><input id="oraSource" placeholder="coingecko" autocomplete="off"></div>
+            <div class="cp-field"><label for="oraConfidence">Confidence (0-1)</label><input id="oraConfidence" type="number" min="0" max="1" step="0.1" value="0.9"></div>
+            <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnOracleAttest" disabled>Sign</button></div>
+            <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Phase D pending.</div>
+            <div class="cp-output" id="oracleAttestOut">Ready.</div>
+          </div>
+          <div class="cp-card">
+            <h3>Register Oracle</h3>
+            <div class="cp-field"><label for="oraRegTypes">Data Types</label><input id="oraRegTypes" placeholder="price/bsv-usd, weather/temp" autocomplete="off"></div>
+            <div class="cp-field"><label for="oraRegEndpoint">Endpoint URL</label><input id="oraRegEndpoint" placeholder="http://vps:3321/oracle" autocomplete="off"></div>
+            <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnOracleReg" disabled>Register</button></div>
+            <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Phase D pending.</div>
+            <div class="cp-output" id="oracleRegOut">Ready.</div>
           </div>
         </div>
       </div>
