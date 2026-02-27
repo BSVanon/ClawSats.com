@@ -397,6 +397,42 @@
     });
   }
 
+  // ── UTXO health bar (Overview tab) ────────────────────────────
+
+  function renderUtxoBar(d) {
+    const bar = el('utxoBar');
+    if (!bar) return;
+    const wallet = d.wallet || {};
+    const total = wallet.utxoTotal || 0;
+    if (total === 0) { bar.style.display = 'none'; return; }
+
+    bar.style.display = '';
+    const avail = wallet.utxoAvailable || 0;
+    const locked = wallet.utxoLocked || 0;
+    const stuck = wallet.utxoStuck || 0;
+
+    // Set fill widths as percentages
+    const pct = (n) => Math.max(0, Math.min(100, (n / total) * 100)).toFixed(1) + '%';
+    el('utxoFillAvail').style.width = pct(avail);
+    el('utxoFillLocked').style.width = pct(locked);
+    el('utxoFillStuck').style.width = pct(stuck);
+
+    // Update legend numbers
+    el('utxoAvailNum').textContent = avail;
+    el('utxoTotalNum').textContent = total;
+
+    const lockedLabel = el('utxoLockedLabel');
+    if (lockedLabel) {
+      lockedLabel.style.display = locked > 0 ? '' : 'none';
+      el('utxoLockedNum').textContent = locked;
+    }
+    const stuckLabel = el('utxoStuckLabel');
+    if (stuckLabel) {
+      stuckLabel.style.display = stuck > 0 ? '' : 'none';
+      el('utxoStuckNum').textContent = stuck;
+    }
+  }
+
   // ── Overview tab ─────────────────────────────────────────────
 
   function renderOverview(d) {
@@ -433,6 +469,9 @@
       el('overviewFeed').textContent = 'No activity yet.';
     }
 
+    // UTXO health bar
+    renderUtxoBar(d);
+
     // Indelible overview stats + 30-day chart
     renderIndelibleOverview(d);
   }
@@ -450,12 +489,18 @@
     el('es-referrals').textContent = fmt(rep.referralsEarned || 0);
 
     const caps = d.capabilities || [];
-    const rows = caps.map(c =>
-      '<tr><td>' + c.name + '</td><td class="num">' + c.pricePerCall + '</td>' +
-      '<td class="num">' + fmt(c.callsServed || 0) + '</td>' +
-      '<td class="num">' + fmt(c.revenueSats || 0) + '</td></tr>'
-    ).join('');
-    el('earningTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="4" style="color:var(--muted)">No earnings yet</td></tr>';
+    const rows = caps.map(c => {
+      const calls = c.callsServed || 0;
+      const rev = c.revenueSats || 0;
+      const avg = calls > 0 ? (rev / calls).toFixed(1) : '-';
+      const trial = c.pricePerCall > 0 ? '<span class="cp-badge cp-badge-ok">Yes</span>' : '<span style="color:var(--muted)">N/A</span>';
+      return '<tr><td>' + c.name + '</td><td class="num">' + c.pricePerCall + '</td>' +
+        '<td class="num">' + fmt(calls) + '</td>' +
+        '<td class="num">' + fmt(rev) + '</td>' +
+        '<td class="num">' + avg + '</td>' +
+        '<td>' + trial + '</td></tr>';
+    }).join('');
+    el('earningTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="6" style="color:var(--muted)">No earnings yet</td></tr>';
   }
 
   // ── Spending tab ─────────────────────────────────────────────

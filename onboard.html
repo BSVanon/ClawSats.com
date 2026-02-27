@@ -124,6 +124,28 @@
     .mc-stepper-wrap { margin-bottom: .75rem; }
     .mc-stepper-title { font-size: .8rem; color: var(--muted); margin-bottom: .3rem; display: flex; align-items: center; gap: .25rem; }
 
+    /* UTXO health bar */
+    .mc-utxo-bar {
+      margin-bottom: 1rem; padding: .6rem .85rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .mc-utxo-label {
+      font-size: .75rem; font-weight: 600; color: var(--muted); margin-bottom: .4rem;
+      display: flex; align-items: center; gap: .25rem;
+    }
+    .mc-utxo-track {
+      display: flex; height: 10px; border-radius: 5px;
+      background: rgba(255,255,255,.06); overflow: hidden;
+    }
+    .mc-utxo-fill { height: 100%; transition: width .3s; }
+    .mc-utxo-fill--avail { background: #27c93f; }
+    .mc-utxo-fill--locked { background: #f5a623; }
+    .mc-utxo-fill--stuck { background: var(--accent); }
+    .mc-utxo-legend {
+      display: flex; gap: 1rem; margin-top: .35rem;
+      font-size: .72rem; color: var(--muted);
+    }
+
     /* Data freshness chip */
     .mc-freshness {
       display: inline-flex; align-items: center; gap: .35rem;
@@ -472,6 +494,22 @@
           <div class="cp-stat"><div class="cp-stat-num" id="os-uptime">-</div><div class="cp-stat-lbl">Uptime<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Time since the Claw wallet process started.</span></span></div></div>
         </div>
 
+        <div class="mc-utxo-bar" id="utxoBar" style="display:none;">
+          <div class="mc-utxo-label">
+            UTXO Pool<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Each UTXO can fund one concurrent payment. Green = available, yellow = in-flight, red = stuck (&gt;5 min). More UTXOs = higher concurrency.</span></span>
+          </div>
+          <div class="mc-utxo-track">
+            <div class="mc-utxo-fill mc-utxo-fill--avail" id="utxoFillAvail"></div>
+            <div class="mc-utxo-fill mc-utxo-fill--locked" id="utxoFillLocked"></div>
+            <div class="mc-utxo-fill mc-utxo-fill--stuck" id="utxoFillStuck"></div>
+          </div>
+          <div class="mc-utxo-legend">
+            <span><span id="utxoAvailNum">0</span>/<span id="utxoTotalNum">0</span> available</span>
+            <span id="utxoLockedLabel" style="display:none;color:#f5a623;"><span id="utxoLockedNum">0</span> in-flight</span>
+            <span id="utxoStuckLabel" style="display:none;color:var(--accent);"><span id="utxoStuckNum">0</span> stuck</span>
+          </div>
+        </div>
+
         <div class="cp-stats" id="overviewIndelibleStats" style="display:none;">
           <div class="cp-stat"><div class="cp-stat-num" id="os-saves">-</div><div class="cp-stat-lbl">Total Saves<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Indelible.One: total context/session saves to the blockchain.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="os-loads">-</div><div class="cp-stat-lbl">Total Loads<span class="mc-help">?<span class="mc-help-tip">Indelible.One: total context loads from the blockchain.</span></span></div></div>
@@ -511,8 +549,8 @@
         <div class="cp-card">
           <h3>Revenue by Capability</h3>
           <table class="cp-table" id="earningTable">
-            <thead><tr><th>Capability</th><th class="num">Price</th><th class="num">Calls</th><th class="num">Revenue (sats)</th></tr></thead>
-            <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to load...</td></tr></tbody>
+            <thead><tr><th>Capability</th><th class="num">Price</th><th class="num">Calls</th><th class="num">Revenue</th><th class="num">Avg/Call<span class="mc-help">?<span class="mc-help-tip">Average sats earned per call (revenue / calls).</span></span></th><th>Free Trial<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">First call per unique identity key is free for all paid capabilities.</span></span></th></tr></thead>
+            <tbody><tr><td colspan="6" style="color:var(--muted)">Connect to load...</td></tr></tbody>
           </table>
         </div>
       </div>
