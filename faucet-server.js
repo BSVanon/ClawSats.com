@@ -730,11 +730,11 @@ async function sendDripToIdentityKey(
     return { txid, status };
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
-    if (walletBackend === 'memory' && (
+    if (
       msg.toLowerCase().includes('insufficient funds') ||
       msg.toLowerCase().includes('needed')
-    )) {
-      console.warn('[FAUCET] createAction could not see spendable inputs in memory mode; trying direct P2PKH fallback path.');
+    ) {
+      console.warn(`[FAUCET] createAction insufficient funds (${walletBackend} mode); trying direct P2PKH fallback path.`);
       const fallback = await sendViaDirectP2PKHFallback(identityKey, DRIP_AMOUNT);
       if (fallback?.txid) {
         writeSpendAudit({
