@@ -12,9 +12,10 @@
  *   - 100 sats per drip
  *
  * Env vars:
- *   FAUCET_ROOT_KEY_HEX  — 64-char hex private key for the faucet wallet (REQUIRED)
- *   FAUCET_PORT           — port (default 3322)
- *   SEED_CLAW_ENDPOINT    — URL of a running Claw for scholarship proxying (optional)
+ *   FAUCET_ROOT_KEY_HEX       — 64-char hex private key for the faucet wallet (REQUIRED)
+ *   SCHOLARSHIP_ROOT_KEY_HEX  — 64-char hex private key for the scholarship wallet (optional; if unset, scholarship uses faucet wallet)
+ *   FAUCET_PORT                — port (default 3322)
+ *   SEED_CLAW_ENDPOINT         — URL of a running Claw for scholarship proxying (optional)
  *   SCHOLARSHIP_DISTRIBUTE_TOKEN — optional admin token for /api/scholarships/distribute
  *   SPEND_AUDIT_PATH      — JSONL path for structured spend audit records (optional)
  *
@@ -65,6 +66,10 @@ const PORT = parseInt(process.env.FAUCET_PORT || '3322', 10);
 const BIND_HOST = process.env.FAUCET_BIND_HOST || '127.0.0.1';
 const DB_PATH = process.env.FAUCET_CLAIMS_PATH || path.join(__dirname, 'faucet-claims.json');
 const FAUCET_ROOT_KEY_HEX = process.env.FAUCET_ROOT_KEY_HEX || '';
+const SCHOLARSHIP_ROOT_KEY_HEX = process.env.SCHOLARSHIP_ROOT_KEY_HEX || '';
+// Runtime truth flag: only true when scholarship wallet is truly independent and ready.
+// Set inside initScholarshipWallet() — never based on env var presence alone.
+let dualWalletMode = false;
 const SEED_CLAW_ENDPOINT = process.env.SEED_CLAW_ENDPOINT || '';
 const WALLET_STORAGE_MODE = (process.env.FAUCET_WALLET_STORAGE || 'sqlite').toLowerCase();
 const WOC_API_BASE = process.env.WOC_API_BASE || 'https://api.whatsonchain.com/v1/bsv/main';
@@ -109,6 +114,13 @@ let walletBackend = 'none';
 let settlingPendingClaims = false;
 let replayingScholarshipRemittances = false;
 let distributing = false;
+
+// --- Scholarship wallet (separate or alias to faucet) ---
+let scholarshipWallet = null;
+let scholarshipWalletReady = false;
+let scholarshipWalletBackend = 'none';
+let scholarshipIdentityKey = '';
+let scholarshipAddress = '';
 const p2pkhSpentUtxos = new Set(); // tracks txid:vout spent in this process lifetime (prevents double-spend in distribution loops)
 
 function getPkgVersion(name) {
@@ -225,7 +237,7 @@ async function initWallet() {
 
     console.log(`[FAUCET] Derived identity key: ${identityKey}`);
     console.log(`[FAUCET] Derived address: ${address}`);
-    console.log(`[FAUCET] Fund this mainnet address for faucet + scholarships.`);
+    console.log(`[FAUCET] Fund this mainnet address for faucet drips${dualWalletMode ? '' : ' + scholarships'}.`);
 
     const dataDir = path.join(__dirname, 'faucet-data');
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -288,6 +300,96 @@ async function initWallet() {
     console.error(`[FAUCET] ❌ Wallet init failed: ${walletError}`);
     console.error(formatErr(err));
     console.warn('[FAUCET]    Faucet will record claims but cannot send sats.');
+  }
+}
+
+function fallbackToFaucetWallet(reason) {
+  dualWalletMode = false;
+  scholarshipWallet = faucetWallet;
+  scholarshipWalletReady = walletReady;
+  scholarshipWalletBackend = walletBackend;
+  scholarshipIdentityKey = faucetIdentityKey;
+  scholarshipAddress = faucetAddress;
+  console.log(`[SCHOLARSHIP] ${reason}`);
+}
+
+async function initScholarshipWallet() {
+  // dualWalletMode starts false; only set true on successful independent init
+  if (!SCHOLARSHIP_ROOT_KEY_HEX) {
+    fallbackToFaucetWallet('Using shared faucet wallet (set SCHOLARSHIP_ROOT_KEY_HEX for independent wallet)');
+    return;
+  }
+
+  if (SCHOLARSHIP_ROOT_KEY_HEX.length !== 64) {
+    fallbackToFaucetWallet('⚠️  SCHOLARSHIP_ROOT_KEY_HEX invalid (need 64 hex chars). Falling back to faucet wallet.');
+    return;
+  }
+
+  try {
+    const { Setup } = require('@bsv/wallet-toolbox');
+    const { PrivateKey } = require('@bsv/sdk');
+
+    const rootKey = PrivateKey.fromHex(SCHOLARSHIP_ROOT_KEY_HEX);
+    const identityKey = rootKey.toPublicKey().toString();
+    const address = pubkeyToAddress(identityKey);
+
+    scholarshipIdentityKey = identityKey;
+    scholarshipAddress = address;
+
+    console.log(`[SCHOLARSHIP] Derived identity key: ${identityKey}`);
+    console.log(`[SCHOLARSHIP] Derived address: ${address}`);
+
+    const dataDir = path.join(__dirname, 'faucet-data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+    const env = {
+      chain: 'main',
+      identityKey,
+      identityKey2: identityKey,
+      filePath: undefined,
+      taalApiKey: '',
+      devKeys: { [identityKey]: SCHOLARSHIP_ROOT_KEY_HEX },
+      mySQLConnection: '{}'
+    };
+
+    if (WALLET_STORAGE_MODE === 'sqlite') {
+      try {
+        const sw = await Setup.createWalletSQLite({
+          env,
+          rootKeyHex: SCHOLARSHIP_ROOT_KEY_HEX,
+          filePath: path.join(dataDir, 'scholarship.sqlite'),
+          databaseName: 'clawsats-scholarship'
+        });
+        scholarshipWallet = sw.wallet;
+        scholarshipWalletBackend = 'sqlite';
+      } catch (sqliteErr) {
+        const sqliteMsg = sqliteErr && sqliteErr.message ? sqliteErr.message : String(sqliteErr);
+        console.warn(`[SCHOLARSHIP] SQLite init failed (${sqliteMsg}), falling back to memory.`);
+        scholarshipWallet = await Setup.createWalletClientNoEnv({
+          chain: 'main',
+          rootKeyHex: SCHOLARSHIP_ROOT_KEY_HEX
+        });
+        scholarshipWalletBackend = 'memory';
+      }
+    } else {
+      scholarshipWallet = await Setup.createWalletClientNoEnv({
+        chain: 'main',
+        rootKeyHex: SCHOLARSHIP_ROOT_KEY_HEX
+      });
+      scholarshipWalletBackend = 'memory';
+    }
+
+    // Only NOW is it safe to declare true dual-wallet mode
+    scholarshipWalletReady = true;
+    dualWalletMode = true;
+    console.log(`[SCHOLARSHIP] ✅ Independent wallet initialized (${scholarshipWalletBackend}) for ${identityKey.substring(0, 24)}...`);
+    console.log(`[SCHOLARSHIP]    BSV Address: ${address}`);
+    console.log(`[SCHOLARSHIP]    Fund this address to enable scholarship distributions.`);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.error(`[SCHOLARSHIP] ❌ Wallet init failed: ${msg}`);
+    console.error(formatErr(err));
+    fallbackToFaucetWallet('Falling back to shared faucet wallet (reserve protections active).');
   }
 }
 
@@ -524,11 +626,12 @@ function extractActionTxBase64(actionResult) {
   throw new Error('createAction result missing tx payload (expected rawTx or tx).');
 }
 
-async function deriveBRC29LockingScript(recipientIdentityKey, derivationPrefix, derivationSuffix) {
-  if (!faucetWallet || typeof faucetWallet.getPublicKey !== 'function') {
+async function deriveBRC29LockingScript(recipientIdentityKey, derivationPrefix, derivationSuffix, wallet) {
+  const w = wallet || faucetWallet;
+  if (!w || typeof w.getPublicKey !== 'function') {
     throw new Error('Wallet does not expose getPublicKey for BRC-29 derivation.');
   }
-  const key = await faucetWallet.getPublicKey({
+  const key = await w.getPublicKey({
     protocolID: [2, '3241645161d8'],
     keyID: `${derivationPrefix} ${derivationSuffix}`,
     counterparty: recipientIdentityKey
@@ -693,14 +796,20 @@ async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
 
   const derivationPrefix = randomHex(8);
   const derivationSuffix = randomHex(8);
-  const lockingScript = await deriveBRC29LockingScript(identityKey, derivationPrefix, derivationSuffix);
+  const schWallet = dualWalletMode ? scholarshipWallet : faucetWallet;
+  const schRootKey = dualWalletMode ? SCHOLARSHIP_ROOT_KEY_HEX : FAUCET_ROOT_KEY_HEX;
+  const schAddress = dualWalletMode ? scholarshipAddress : faucetAddress;
+  const schBackend = dualWalletMode ? scholarshipWalletBackend : walletBackend;
+  const schSenderKey = dualWalletMode ? scholarshipIdentityKey : faucetIdentityKey;
+
+  const lockingScript = await deriveBRC29LockingScript(identityKey, derivationPrefix, derivationSuffix, schWallet);
 
   let txid = null;
   let transaction = null;
   let txhex = null;
 
   try {
-    const result = await faucetWallet.createAction({
+    const result = await schWallet.createAction({
       description: `ClawSats scholarship: ${satoshis} sats to ${identityKey.substring(0, 16)}...`,
       outputs: [{
         satoshis,
@@ -730,8 +839,12 @@ async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
     }
     // Bridge mode for externally-funded wallets: spend address UTXOs directly,
     // but still pay to a BRC-29 derived script so the recipient can internalize.
-    console.warn(`[SCHOLARSHIP] createAction could not see spendable inputs (${walletBackend} mode); trying direct legacy-input bridge with BRC-29 remittance.`);
-    const direct = await sendViaDirectP2PKHFallback(identityKey, satoshis, { recipientScriptHex: lockingScript });
+    console.warn(`[SCHOLARSHIP] createAction could not see spendable inputs (${schBackend} mode); trying direct legacy-input bridge with BRC-29 remittance.`);
+    const direct = await sendViaDirectP2PKHFallback(identityKey, satoshis, {
+      recipientScriptHex: lockingScript,
+      rootKeyHex: schRootKey,
+      fromAddress: schAddress
+    });
     txid = direct.txid || null;
     transaction = direct.transaction || null;
     txhex = direct.txhex || null;
@@ -753,7 +866,7 @@ async function sendScholarshipToIdentityKey(identityKey, satoshis, endpoint) {
     identityKey,
     endpoint: safeEndpoint,
     satoshis,
-    senderIdentityKey: faucetIdentityKey,
+    senderIdentityKey: schSenderKey,
     derivationPrefix,
     derivationSuffix,
     transaction,
@@ -1620,23 +1733,17 @@ async function replayScholarshipRemittances(maxToProcess = 25) {
 }
 
 /**
- * Check the faucet wallet's actual balance via listOutputs.
- * Returns available satoshis.
+ * Generic wallet balance check: toolbox listOutputs + WoC external P2PKH.
+ * Two disjoint UTXO pools exist per wallet — we sum both for the true balance.
  */
-async function getWalletBalance() {
-  if (!walletReady || !faucetWallet) return 0;
-
-  // Two disjoint UTXO pools exist:
-  // 1. Toolbox-managed: change at BRC-29 derived addresses (from createAction sends)
-  // 2. External P2PKH: UTXOs sent directly to faucetAddress by humans
-  // Neither source sees the other's UTXOs, so we sum both for the true balance.
+async function getWalletBalanceFor(wallet, address, label) {
+  if (!wallet) return 0;
 
   let toolboxBalance = 0;
   let externalBalance = 0;
 
-  // Toolbox balance: derived change addresses + internalized outputs
   try {
-    const outputs = await faucetWallet.listOutputs({
+    const outputs = await wallet.listOutputs({
       basket: 'default',
       include: 'locking scripts',
       limit: 1000
@@ -1651,36 +1758,52 @@ async function getWalletBalance() {
       }
     }
   } catch (err) {
-    console.warn(`[WALLET] Toolbox listOutputs failed: ${err.message}`);
+    console.warn(`[${label}] Toolbox listOutputs failed: ${err.message}`);
   }
 
-  // External balance: P2PKH UTXOs at the faucet address (human funding)
-  if (faucetAddress) {
+  if (address) {
     try {
-      const data = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/balance`);
+      const data = await fetchApi(`${WOC_API_BASE}/address/${address}/balance`);
       const confirmed = Number(data.confirmed || 0);
       const unconfirmed = Number(data.unconfirmed || 0);
       externalBalance = Math.max(0, confirmed + unconfirmed);
     } catch (err) {
-      console.warn(`[WALLET] WOC balance check failed: ${err.message}`);
+      console.warn(`[${label}] WOC balance check failed: ${err.message}`);
     }
   }
 
   return toolboxBalance + externalBalance;
 }
 
+async function getFaucetBalance() {
+  if (!walletReady || !faucetWallet) return 0;
+  return getWalletBalanceFor(faucetWallet, faucetAddress, 'FAUCET');
+}
+
+async function getScholarshipBalance() {
+  if (!scholarshipWalletReady || !scholarshipWallet) return 0;
+  return getWalletBalanceFor(scholarshipWallet, scholarshipAddress, 'SCHOLARSHIP');
+}
+
+// Backwards-compat alias
+async function getWalletBalance() {
+  return getFaucetBalance();
+}
+
 async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, options = {}) {
-  if (!FAUCET_ROOT_KEY_HEX || !faucetAddress) {
-    throw new Error('Direct P2PKH fallback unavailable: missing faucet key/address.');
+  const keyHex = options.rootKeyHex || FAUCET_ROOT_KEY_HEX;
+  const addr = options.fromAddress || faucetAddress;
+  if (!keyHex || !addr) {
+    throw new Error('Direct P2PKH fallback unavailable: missing key/address.');
   }
 
   const { PrivateKey, P2PKH, fromUtxo, Transaction, Script, SatoshisPerKilobyte } = require('@bsv/sdk');
 
-  const priv = PrivateKey.fromHex(FAUCET_ROOT_KEY_HEX);
+  const priv = PrivateKey.fromHex(keyHex);
   const unlock = new P2PKH().unlock(priv);
   const recipientScriptHex = options.recipientScriptHex || p2pkhFromPubkey(recipientIdentityKey);
 
-  const rawUtxos = await fetchApi(`${WOC_API_BASE}/address/${faucetAddress}/unspent`);
+  const rawUtxos = await fetchApi(`${WOC_API_BASE}/address/${addr}/unspent`);
   const baseUtxos = (Array.isArray(rawUtxos) ? rawUtxos : [])
     .map(u => ({
       txid: u.tx_hash || u.tx_hash_big_endian || u.txid,
@@ -1739,7 +1862,7 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, option
     satoshis,
     lockingScript: Script.fromHex(recipientScriptHex)
   });
-  tx.addP2PKHOutput(faucetAddress); // change output
+  tx.addP2PKHOutput(addr); // change output
 
   await tx.fee(new SatoshisPerKilobyte(1000));
   await tx.sign();
@@ -1770,36 +1893,48 @@ async function sendViaDirectP2PKHFallback(recipientIdentityKey, satoshis, option
 
 // GET /api/scholarships/address — the BSV address to send scholarship donations to
 app.get('/api/scholarships/address', (req, res) => {
-  if (!faucetAddress) {
+  const addr = scholarshipAddress || faucetAddress;
+  const key = scholarshipIdentityKey || faucetIdentityKey;
+  if (!addr) {
     return res.status(503).json({
-      error: 'Faucet wallet not initialized. Scholarship address unavailable.'
+      error: 'Scholarship wallet not initialized. Address unavailable.'
     });
   }
   res.json({
-    address: faucetAddress,
-    identityKey: faucetIdentityKey,
+    address: addr,
+    identityKey: key,
     chain: 'main',
-    message: `Send mainnet BSV to ${faucetAddress}. All funds go to the general scholarship fund for Claw education.`
+    dualWalletMode,
+    message: `Send mainnet BSV to ${addr}. All funds go to the general scholarship fund for Claw education.`
   });
 });
 
 // GET /api/scholarships/status — fund status with scholarship-specific balance
 app.get('/api/scholarships/status', async (req, res) => {
   const scholarship = getEligibleClaws();
-  const balance = await getWalletBalance();
-  fund.lastKnownBalance = balance;
-  fund.lastBalanceCheck = Date.now();
 
-  // Scholarship remaining: budget minus distributed, capped at what the wallet can actually spend
-  const scholarshipBudget = Math.max(0, (fund.allocated || 0) - fund.totalDistributed);
-  const pendingClaims = getPendingClaimEntries().length;
-  const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
-  const reserveForFaucet = Math.max(FAUCET_MIN_RESERVE_SATS, reserveSlots * MIN_DRIP_SPENDABLE);
-  const walletAvailable = Math.max(0, balance - reserveForFaucet);
-  const scholarshipRemaining = Math.min(scholarshipBudget, walletAvailable);
+  let balance, scholarshipRemaining;
+
+  if (dualWalletMode) {
+    // Two-wallet mode: wallet balance IS the budget
+    balance = await getScholarshipBalance();
+    scholarshipRemaining = balance;
+  } else {
+    // Single-wallet fallback: preserve reserve formula to protect faucet funds
+    balance = await getWalletBalance();
+    fund.lastKnownBalance = balance;
+    fund.lastBalanceCheck = Date.now();
+    const scholarshipBudget = Math.max(0, (fund.allocated || 0) - fund.totalDistributed);
+    const pendingClaims = getPendingClaimEntries().length;
+    const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
+    const reserveForFaucet = Math.max(FAUCET_MIN_RESERVE_SATS, reserveSlots * MIN_DRIP_SPENDABLE);
+    const walletAvailable = Math.max(0, balance - reserveForFaucet);
+    scholarshipRemaining = Math.min(scholarshipBudget, walletAvailable);
+  }
 
   res.json({
-    scholarshipAllocated: fund.allocated || 0,
+    dualWalletMode,
+    scholarshipAllocated: dualWalletMode ? balance : (fund.allocated || 0),
     scholarshipDistributed: fund.totalDistributed,
     scholarshipRemaining,
     walletBalance: balance,
@@ -1811,14 +1946,21 @@ app.get('/api/scholarships/status', async (req, res) => {
     excludedPlaceholderEndpoint: scholarship.excludedPlaceholderEndpoint,
     includeClaimOnly: scholarship.includeClaimOnly,
     legacyP2PKHEnabled: scholarship.legacyP2PKHEnabled,
-    address: faucetAddress || null,
+    address: scholarshipAddress || faucetAddress || null,
     chain: 'main',
     recentDistributions: fund.distributions.slice(-10).reverse()
   });
 });
 
-// POST /api/scholarships/allocate — set or add to scholarship budget
+// POST /api/scholarships/allocate — set or add to scholarship budget (single-wallet mode only)
 app.post('/api/scholarships/allocate', (req, res) => {
+  if (dualWalletMode) {
+    return res.status(409).json({
+      error: 'Dual-wallet mode active. Scholarship budget = scholarship wallet balance. Fund the scholarship address directly instead.',
+      scholarshipAddress,
+      dualWalletMode: true
+    });
+  }
   if (!hasScholarshipDistributeAuth(req)) {
     return res.status(401).json({ error: 'Unauthorized.' });
   }
@@ -1846,15 +1988,20 @@ app.post('/api/scholarships/allocate', (req, res) => {
 
 // GET /api/healthz — production health summary
 app.get('/api/healthz', async (req, res) => {
-  const balance = await getWalletBalance();
+  const fBalance = await getFaucetBalance();
+  const sBalance = dualWalletMode ? await getScholarshipBalance() : fBalance;
   const pendingClaims = getPendingClaimEntries().length;
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptimeSec: Math.round(process.uptime()),
+    dualWalletMode,
     walletReady,
     walletBackend,
-    walletBalance: balance,
+    walletBalance: fBalance,
+    scholarshipWalletReady,
+    scholarshipWalletBackend,
+    scholarshipBalance: sBalance,
     pendingClaims,
     pendingInternalizations: scholarshipRemittances.pending.length,
     knownDirectoryEntries: Object.keys(directory).length,
@@ -1874,8 +2021,7 @@ app.get('/api/audit/spends', (req, res) => {
 });
 
 // POST /api/scholarships/distribute — distribute wallet balance across eligible Claws
-// This sends REAL sats from the faucet wallet to Claws.
-// The wallet must have balance (from human donations sent to the QR code address).
+// This sends REAL sats from the scholarship wallet (or faucet wallet in single-wallet mode) to Claws.
 app.post('/api/scholarships/distribute', async (req, res) => {
   if (!hasScholarshipDistributeAuth(req)) {
     return res.status(401).json({
@@ -1888,8 +2034,10 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     return res.status(429).json({ error: 'Too many distribution requests. Try again in a minute.' });
   }
 
-  if (!walletReady || !faucetWallet) {
-    return res.status(503).json({ error: 'Faucet wallet not ready. Cannot distribute.' });
+  const schReady = dualWalletMode ? scholarshipWalletReady : walletReady;
+  const schWallet = dualWalletMode ? scholarshipWallet : faucetWallet;
+  if (!schReady || !schWallet) {
+    return res.status(503).json({ error: 'Scholarship wallet not ready. Cannot distribute.' });
   }
 
   if (distributing) {
@@ -1898,20 +2046,27 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   distributing = true;
 
   try {
-  // Check real wallet balance
-  const balance = await getWalletBalance();
-  // Reserve sats for pending claims only by default (or explicit env override).
-  // Reserving all future 499 potential claims blocks scholarship distribution.
-  const pendingClaims = getPendingClaimEntries().length;
-  const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
-  const reserveFromSlots = reserveSlots * MIN_DRIP_SPENDABLE;
-  const reserveForFaucet = Math.max(FAUCET_MIN_RESERVE_SATS, reserveFromSlots);
+  // Check scholarship balance
+  const balance = dualWalletMode ? await getScholarshipBalance() : await getWalletBalance();
   const scholarship = getEligibleClaws();
   const eligible = scholarship.eligible;
   const txFeeReserveTotal = eligible.length * Math.max(1, SCHOLARSHIP_TX_FEE_RESERVE);
-  const walletBudget = balance - reserveForFaucet - txFeeReserveTotal;
-  const scholarshipBudget = (fund.allocated || 0) - fund.totalDistributed;
-  const budgetForOutputs = Math.max(0, Math.min(walletBudget, scholarshipBudget));
+  const pendingClaims = getPendingClaimEntries().length;
+
+  let budgetForOutputs, reserveForFaucet;
+  if (dualWalletMode) {
+    // Two-wallet mode: wallet balance IS the budget, no faucet reserve needed
+    reserveForFaucet = 0;
+    budgetForOutputs = Math.max(0, balance - txFeeReserveTotal);
+  } else {
+    // Single-wallet fallback: preserve reserve formula to protect faucet funds
+    const reserveSlots = FAUCET_RESERVE_SLOTS ?? pendingClaims;
+    const reserveFromSlots = reserveSlots * MIN_DRIP_SPENDABLE;
+    reserveForFaucet = Math.max(FAUCET_MIN_RESERVE_SATS, reserveFromSlots);
+    const walletBudget = balance - reserveForFaucet - txFeeReserveTotal;
+    const scholarshipBudget = (fund.allocated || 0) - fund.totalDistributed;
+    budgetForOutputs = Math.max(0, Math.min(walletBudget, scholarshipBudget));
+  }
 
   if (eligible.length === 0) {
     const missing = scholarship.excludedMissingEndpoint + scholarship.excludedPlaceholderEndpoint;
@@ -1922,11 +2077,10 @@ app.post('/api/scholarships/distribute', async (req, res) => {
       distributed: 0,
       message: reason,
       walletBalance: balance,
+      dualWalletMode,
       excludedMissingEndpoint: scholarship.excludedMissingEndpoint,
       excludedPlaceholderEndpoint: scholarship.excludedPlaceholderEndpoint,
       reservedForFaucet: reserveForFaucet,
-      faucetMinReserve: FAUCET_MIN_RESERVE_SATS,
-      reserveSlots,
       pendingClaims
     });
   }
@@ -1935,14 +2089,15 @@ app.post('/api/scholarships/distribute', async (req, res) => {
     return res.json({
       distributed: 0,
       walletBalance: balance,
+      dualWalletMode,
       excludedMissingEndpoint: scholarship.excludedMissingEndpoint,
       excludedPlaceholderEndpoint: scholarship.excludedPlaceholderEndpoint,
       reservedForFaucet: reserveForFaucet,
-      faucetMinReserve: FAUCET_MIN_RESERVE_SATS,
       reservedForScholarshipFees: txFeeReserveTotal,
-      reserveSlots,
       pendingClaims,
-      message: 'Insufficient balance after reserving faucet + tx fees for scholarship sends. Send more BSV to the scholarship address.'
+      message: dualWalletMode
+        ? 'Insufficient scholarship wallet balance after tx fee reserve. Send more BSV to the scholarship address.'
+        : 'Insufficient balance after reserving faucet + tx fees for scholarship sends. Send more BSV to the scholarship address.'
     });
   }
 
@@ -2043,6 +2198,7 @@ app.get('*', (req, res) => {
 // --- Start ---
 async function main() {
   await initWallet();
+  await initScholarshipWallet();
   if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[STARTUP] FATAL: SCHOLARSHIP_DISTRIBUTE_TOKEN must be set in production. Set it in .env and restart.');
@@ -2086,7 +2242,12 @@ async function main() {
     console.log(`\n🦞 ClawSats Faucet + Website (mainnet)`);
     console.log(`   http://${BIND_HOST}:${PORT}`);
     console.log(`   Faucet: ${db.count}/${MAX_CLAIMS} claimed, ${DRIP_AMOUNT} sats/drip`);
-    console.log(`   Wallet: ${walletReady ? `✅ ready (${walletBackend})` : '⚠️  not ready (claims recorded, sats pending)'}`);
+    console.log(`   Faucet wallet: ${walletReady ? `✅ ready (${walletBackend})` : '⚠️  not ready'} — ${faucetAddress || 'no address'}`);
+    if (dualWalletMode) {
+      console.log(`   Scholarship wallet: ${scholarshipWalletReady ? `✅ ready (${scholarshipWalletBackend})` : '⚠️  not ready'} — ${scholarshipAddress || 'no address'}`);
+    } else {
+      console.log(`   Scholarship: shared faucet wallet (set SCHOLARSHIP_ROOT_KEY_HEX for separation)`);
+    }
     if (SEED_CLAW_ENDPOINT) console.log(`   Seed Claw: ${SEED_CLAW_ENDPOINT}`);
     console.log(`   Status: GET /api/faucet/status`);
     console.log(`   Drip:   POST /api/faucet/drip { identityKey }`);
