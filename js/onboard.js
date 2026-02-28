@@ -457,8 +457,8 @@
     renderDiagnostics(d);
   }
 
-  // ── Phase D gating ──────────────────────────────────────────
-  // Disable write/action buttons when Phase D wallet adapters are not shipped.
+  // ── Coming-soon gating ──────────────────────────────────────
+  // Disable write/action buttons for features not yet shipped.
   // Checks d.indelible.phaseDReady (future flag) — defaults to false.
 
   function updatePhaseDGating(d) {
@@ -467,10 +467,10 @@
 
     document.querySelectorAll('.mc-phase-d').forEach(btn => {
       btn.disabled = !phaseDAvailable;
-      btn.title = phaseDAvailable ? '' : 'Phase D wallet adapters pending — UI ready, backend coming soon';
+      btn.title = phaseDAvailable ? '' : 'Coming soon';
     });
 
-    // Show/hide Phase D notice on write forms
+    // Show/hide coming-soon notice on write forms
     document.querySelectorAll('.mc-phase-d-notice').forEach(notice => {
       notice.style.display = phaseDAvailable ? 'none' : '';
     });
@@ -586,7 +586,13 @@
     const filtered = feedFilter === 'all' ? items : items.filter(i => i.cls === feedFilter);
 
     feedEl.innerHTML = filtered.map(({ cls, e }) => {
-      const time = (e.ts || '').substring(11, 19);
+      const ts = e.ts || '';
+      const d = ts ? new Date(ts) : null;
+      const datePart = d ? (String(d.getMonth()+1).padStart(2,'0') + '/' +
+        String(d.getDate()).padStart(2,'0') + '/' +
+        String(d.getFullYear()).slice(-2)) : '';
+      const timePart = ts.substring(11, 19);
+      const datetime = datePart ? datePart + ' ' + timePart : timePart;
       const msg = (e.type || '') + (e.capability ? ' ' + e.capability : '');
       let satsHtml = '';
       if (e.sats) {
@@ -596,9 +602,10 @@
       }
       return '<li class="mc-feed-item" data-type="' + cls + '">' +
         '<span class="mc-feed-type mc-feed-type--' + cls + '">' + cls + '</span>' +
-        '<span class="mc-feed-time">' + time + '</span>' +
         '<span class="mc-feed-msg">' + msg + '</span>' +
-        satsHtml + '</li>';
+        satsHtml +
+        '<span class="mc-feed-time">' + datetime + '</span>' +
+        '</li>';
     }).join('');
   }
 
@@ -750,6 +757,27 @@
 
   // ── Brain tab ────────────────────────────────────────────────
 
+  function brainDate(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    return String(d.getMonth()+1).padStart(2,'0') + '/' +
+      String(d.getDate()).padStart(2,'0') + '/' +
+      String(d.getFullYear()).slice(-2) + ' ' +
+      String(d.getHours()).padStart(2,'0') + ':' +
+      String(d.getMinutes()).padStart(2,'0');
+  }
+
+  function brainDateTime(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    return String(d.getMonth()+1).padStart(2,'0') + '/' +
+      String(d.getDate()).padStart(2,'0') + '/' +
+      String(d.getFullYear()).slice(-2) + ' ' +
+      ts.substring(11, 19);
+  }
+
   function renderBrain(d) {
     const brain = d.brain || {};
 
@@ -757,8 +785,15 @@
     el('bs-completed').textContent = fmt(brain.completed || 0);
     el('bs-failed').textContent = fmt(brain.failed || 0);
     el('bs-approval').textContent = fmt(brain.needsApproval || 0);
-    el('bs-auto').textContent = fmt(brain.autoApproved || 0);
     el('bs-conf').textContent = brain.avgConfidence || '-';
+
+    // Safety shutoffs metric (circuit breaker count)
+    const breakers = brain.circuitBreakers || [];
+    el('bs-safety').textContent = fmt(breakers.length);
+    var safetyStat = el('bs-safety-stat');
+    if (safetyStat) {
+      safetyStat.className = breakers.length > 0 ? 'cp-stat cp-stat-red' : 'cp-stat cp-stat-green';
+    }
 
     // Pending approvals
     const approvals = brain.pendingApprovals || [];
@@ -786,33 +821,43 @@
       }
     }
 
-    // Circuit breakers
-    const breakers = brain.circuitBreakers || [];
+    // Safety status
     el('brainBreakers').innerHTML = breakers.length > 0
       ? breakers.map(b => '<span class="cp-badge cp-badge-err">' + b + '</span> ').join('')
-      : '<span style="color:var(--muted)">No circuit breakers open</span>';
+      : '<span style="color:#27c93f">All tools operating normally</span>';
 
-    // Recent jobs
+    // Recent jobs — colored badges + timestamps
     const recent = brain.recent || [];
     if (recent.length > 0) {
-      el('brainJobs').textContent = recent.map(j =>
-        '[' + j.status + '] ' + (j.capability || '-') + ' (' + (j.strategy || '-') + ')' +
-        (j.error ? ' ERR: ' + short(j.error, 40) : '')
-      ).join('\n');
+      var statusCls = { completed: 'cp-badge-ok', failed: 'cp-badge-err', pending: 'cp-badge-warn', needs_approval: 'cp-badge-warn', running: 'cp-badge-warn' };
+      el('brainJobs').innerHTML = '<div style="display:flex;flex-direction:column;gap:2px;">' + recent.map(function(j) {
+        var cls = statusCls[j.status] || '';
+        var dt = brainDate(j.createdAt);
+        return '<div style="display:flex;align-items:center;gap:.5rem;">' +
+          '<span class="cp-badge ' + cls + '" style="font-size:.65rem;min-width:60px;text-align:center;">' + (j.status || '-') + '</span>' +
+          '<span style="flex:1;">' + (j.capability || '-') + ' <span style="color:var(--muted)">(' + (j.strategy || '-') + ')</span></span>' +
+          (j.error ? '<span style="color:#e63946;font-size:.75rem;">ERR: ' + short(j.error, 30) + '</span>' : '') +
+          '<span style="color:var(--muted);font-family:\'IBM Plex Mono\',monospace;font-size:.72rem;margin-left:auto;">' + dt + '</span>' +
+          '</div>';
+      }).join('') + '</div>';
     } else {
-      el('brainJobs').textContent = 'No brain jobs.';
+      el('brainJobs').innerHTML = '<span style="color:var(--muted)">No brain jobs.</span>';
     }
 
-    // Recent events
+    // Activity log — with full dates
     const events = d.recentEvents || [];
     if (events.length > 0) {
-      el('brainEvents').textContent = events.map(e =>
-        (e.ts || '').substring(11, 19) + ' ' + (e.action || '') +
-        (e.details?.confidence ? ' (conf: ' + e.details.confidence + ')' : '') +
-        (e.reason ? ': ' + short(e.reason, 80) : '')
-      ).join('\n');
+      el('brainEvents').innerHTML = '<div style="display:flex;flex-direction:column;gap:2px;">' + events.map(function(e) {
+        var dt = brainDateTime(e.ts);
+        return '<div style="display:flex;align-items:baseline;gap:.5rem;">' +
+          '<span style="flex:1;">' + (e.action || '') +
+          (e.details && e.details.confidence ? ' <span style="color:var(--muted)">(conf: ' + e.details.confidence + ')</span>' : '') +
+          (e.reason ? ': ' + short(e.reason, 70) : '') + '</span>' +
+          '<span style="color:var(--muted);font-family:\'IBM Plex Mono\',monospace;font-size:.72rem;margin-left:auto;white-space:nowrap;">' + dt + '</span>' +
+          '</div>';
+      }).join('') + '</div>';
     } else {
-      el('brainEvents').textContent = 'No decision events yet.';
+      el('brainEvents').innerHTML = '<span style="color:var(--muted)">No activity yet.</span>';
     }
   }
 
@@ -838,33 +883,48 @@
 
   function renderMemory(d) {
     const mem = d.memory || {};
+    const ind = d.indelible || {};
     el('ms-records').textContent = fmt(mem.totalMemories || 0);
     el('ms-index').textContent = mem.masterIndexTxid ? 'Yes' : 'No';
 
-    // Backend type
-    const backend = mem.backend || 'local';
-    el('ms-backend').textContent = backend;
-
-    // Sync status badge
-    const syncEl = el('ms-sync');
-    if (syncEl) {
-      const ind = d.indelible;
-      if (ind && ind.enabled) {
-        const synced = mem.synced !== false;
-        syncEl.innerHTML = '<span class="mc-sync-badge ' + (synced ? 'mc-sync-badge--ok' : 'mc-sync-badge--warn') + '">' +
-          (synced ? 'Synced' : 'Behind') + '</span>';
+    // Storage — derive from whether Indelible is connected
+    var storageEl = el('ms-storage');
+    if (storageEl) {
+      if (ind.enabled) {
+        storageEl.innerHTML = '<span style="color:#27c93f">Indelible.One</span>';
       } else {
-        syncEl.innerHTML = '<span class="mc-sync-badge mc-sync-badge--off">Local only</span>';
+        storageEl.innerHTML = '<span>BSV Blockchain</span>';
       }
     }
 
-    const lines = [];
-    lines.push('Total records: ' + fmt(mem.totalMemories || 0));
-    if (mem.masterIndexTxid) lines.push('Master index TXID: ' + mem.masterIndexTxid);
-    lines.push('Backend: ' + backend);
-    if (mem.lastWriteAt) lines.push('Last write: ' + ago(mem.lastWriteAt));
-    if (mem.keys) lines.push('Keys: ' + (Array.isArray(mem.keys) ? mem.keys.join(', ') : mem.keys));
-    el('memoryDetails').textContent = lines.join('\n') || 'No memory data.';
+    // Last write — show actual date or "Never"
+    var lastWriteEl = el('ms-lastwrite');
+    if (lastWriteEl) {
+      if (mem.newestMemory) {
+        lastWriteEl.textContent = ago(mem.newestMemory);
+      } else {
+        lastWriteEl.innerHTML = '<span style="color:var(--muted)">Never</span>';
+      }
+    }
+
+    // Memory details
+    var lines = [];
+    if ((mem.totalMemories || 0) > 0) {
+      lines.push('Records: ' + fmt(mem.totalMemories));
+      lines.push('On-chain data: ' + fmt(mem.totalOnChainBytes || 0) + ' bytes across ' + fmt(mem.totalTransactions || 0) + ' transactions');
+      if (mem.encryptedCount) lines.push('Encrypted: ' + fmt(mem.encryptedCount) + '  |  Plaintext: ' + fmt(mem.plaintextCount || 0));
+      if (mem.oldestMemory) lines.push('Oldest: ' + ago(mem.oldestMemory));
+      if (mem.newestMemory) lines.push('Newest: ' + ago(mem.newestMemory));
+      if (mem.categories) {
+        var cats = Object.entries(mem.categories).map(function(e) { return e[0] + ': ' + e[1]; }).join(', ');
+        if (cats) lines.push('Categories: ' + cats);
+      }
+      if (mem.masterIndexTxid) lines.push('Master index: ' + mem.masterIndexTxid);
+    } else {
+      lines.push('No memories recorded yet.');
+      lines.push('Memories are written when the brain stores knowledge on-chain via OP_RETURN transactions.');
+    }
+    el('memoryDetails').textContent = lines.join('\n');
 
     // Session browser (from Indelible)
     renderSessionBrowser(d);
@@ -1052,9 +1112,9 @@
     }
     const rep = ind.reputation || {};
     const entries = Object.entries(rep);
-    const totalAtts = entries.reduce((sum, [, r]) => sum + (r.attestationCount || 0), 0);
+    const totalReviews = entries.reduce((sum, [, r]) => sum + (r.attestationCount || 0), 0);
     el('rp-agents').textContent = fmt(entries.length);
-    el('rp-attestations').textContent = fmt(totalAtts);
+    el('rp-attestations').textContent = fmt(totalReviews);
     const rows = entries.map(([key, r]) => {
       const b = r.breakdown || {};
       return '<tr><td>' + copyable(key, 16) + '</td>' +
@@ -1065,7 +1125,7 @@
         '<td class="num">' + (b.recencyBonus || 0).toFixed(1) + '</td>' +
         '<td class="num">' + fmt(r.attestationCount || 0) + '</td></tr>';
     }).join('');
-    el('reputationTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="7" style="color:var(--muted)">No reputation data</td></tr>';
+    el('reputationTable').querySelector('tbody').innerHTML = rows || '<tr><td colspan="7" style="color:var(--muted)">No reviews yet</td></tr>';
 
     // Populate agent picker dropdown from reputation keys + roster
     populateAgentPicker(d);
@@ -1091,7 +1151,7 @@
       return '<span class="cp-badge cp-badge-' + cls + '">' + s + '</span>';
     };
     const escrowActions = (e) => {
-      const dis = phaseDAvailable ? '' : ' disabled title="Phase D pending"';
+      const dis = phaseDAvailable ? '' : ' disabled title="Coming soon"';
       if (e.status === 'pending') return '<button class="btn btn-sm mc-phase-d"' + dis + ' onclick="window._escrowAction(\'' + e.id + '\',\'accept\')">Accept</button>';
       if (e.status === 'accepted') return '<button class="btn btn-sm mc-phase-d"' + dis + ' onclick="window._escrowAction(\'' + e.id + '\',\'release\')">Release</button> ' +
         '<button class="btn btn-sm btn-danger mc-phase-d"' + dis + ' onclick="window._escrowAction(\'' + e.id + '\',\'dispute\')">Dispute</button>';
@@ -1164,7 +1224,7 @@
       '<td class="num">' + ((a.confidence || 0) * 100).toFixed(0) + '%</td>' +
       '<td>' + ago(a.timestamp) + '</td></tr>'
     ).join('');
-    el('oracleAttTable').querySelector('tbody').innerHTML = attRows || '<tr><td colspan="5" style="color:var(--muted)">No attestations</td></tr>';
+    el('oracleAttTable').querySelector('tbody').innerHTML = attRows || '<tr><td colspan="5" style="color:var(--muted)">No data points published</td></tr>';
   }
 
   // ── Agent picker ─────────────────────────────────────────────
@@ -1415,7 +1475,7 @@
       });
     } else {
       lines.push('');
-      lines.push('Full message history requires Phase D wallet adapters.');
+      lines.push('Full message history coming soon.');
     }
     writeOut('msgThreadOut', lines.join('\n'));
   }

@@ -57,6 +57,7 @@
     .cp-stat-sub { font-size: .65rem; color: var(--muted); margin-top: .15rem; }
     .cp-stat-green .cp-stat-num { color: #27c93f; }
     .cp-stat-yellow .cp-stat-num { color: #f5a623; }
+    .cp-stat-red .cp-stat-num { color: #e63946; }
 
     /* Tables */
     .cp-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -366,9 +367,9 @@
     .mc-feed-type--system { background: rgba(255,255,255,.08); color: var(--muted); }
     .mc-feed-time {
       font-family: 'IBM Plex Mono', monospace; color: var(--muted);
-      font-size: .72rem; flex-shrink: 0;
+      font-size: .72rem; flex-shrink: 0; margin-left: auto;
     }
-    .mc-feed-msg { flex: 1; color: var(--text); }
+    .mc-feed-msg { color: var(--text); }
     .mc-feed-sats { font-family: 'IBM Plex Mono', monospace; font-weight: 600; white-space: nowrap; }
     .mc-feed-sats--pos { color: #27c93f; }
     .mc-feed-sats--neg { color: #f5a623; }
@@ -621,8 +622,8 @@
           <button class="cp-tab" data-tab="spending">Spending</button>
         </div>
         <div class="mc-subtab-group" data-category="network">
-          <button class="cp-tab" data-tab="network">Peers</button>
-          <button class="cp-tab" data-tab="agents">Agents</button>
+          <button class="cp-tab" data-tab="network">Directory</button>
+          <button class="cp-tab" data-tab="agents">Certified Agents</button>
         </div>
         <div class="mc-subtab-group" data-category="intelligence">
           <button class="cp-tab" data-tab="brain">Brain</button>
@@ -760,9 +761,9 @@
         <div class="cp-stats" id="brainStats">
           <div class="cp-stat"><div class="cp-stat-num" id="bs-pending">-</div><div class="cp-stat-lbl">Pending<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Brain jobs queued but not yet executed by the LLM decision engine.</span></span></div></div>
           <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="bs-completed">-</div><div class="cp-stat-lbl">Completed<span class="mc-help">?<span class="mc-help-tip">Brain jobs successfully decided and actions executed.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="bs-failed">-</div><div class="cp-stat-lbl">Failed<span class="mc-help">?<span class="mc-help-tip">Brain jobs that errored out. 3 failures on the same tool opens a circuit breaker.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="bs-failed">-</div><div class="cp-stat-lbl">Failed<span class="mc-help">?<span class="mc-help-tip">Brain jobs that errored out. 3 failures on the same tool triggers a safety shutoff.</span></span></div></div>
           <div class="cp-stat cp-stat-yellow"><div class="cp-stat-num" id="bs-approval">-</div><div class="cp-stat-lbl">Needs Approval<span class="mc-help">?<span class="mc-help-tip">Gated actions (hireClaw, createAction, writeMemory) waiting for human approval.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="bs-auto">-</div><div class="cp-stat-lbl">Auto-Approved<span class="mc-help">?<span class="mc-help-tip">Actions auto-approved by policy (read-only tools on the allowed list).</span></span></div></div>
+          <div class="cp-stat" id="bs-safety-stat"><div class="cp-stat-num" id="bs-safety">-</div><div class="cp-stat-lbl">Safety Shutoffs<span class="mc-help">?<span class="mc-help-tip">When a tool fails 3 times in a row, the brain stops using it to prevent repeated errors. 0 means all tools are healthy.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="bs-conf">-</div><div class="cp-stat-lbl">Avg Confidence<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Average LLM confidence score (0-1) across recent decisions.</span></span></div></div>
         </div>
         <div class="cp-card" id="brainApprovalCard" style="display:none;margin-bottom:1rem;">
@@ -772,16 +773,16 @@
         </div>
         <div class="cp-grid">
           <div class="cp-card">
-            <h3>Circuit Breakers</h3>
+            <h3>Safety Status<span class="mc-help">?<span class="mc-help-tip">The brain automatically shuts off tools that fail repeatedly. When a shutoff is active, that tool won't be retried until the issue is resolved.</span></span></h3>
             <div id="brainBreakers" style="font-size:.85rem;color:var(--muted);">None open</div>
           </div>
           <div class="cp-card">
-            <h3>Recent Jobs</h3>
+            <h3>Recent Jobs<span class="mc-help">?<span class="mc-help-tip">Tasks the brain queues and runs autonomously — DNS lookups, peer discovery, capability calls.</span></span></h3>
             <div class="cp-output" id="brainJobs">Connect to load...</div>
           </div>
         </div>
         <div class="cp-card" style="margin-top:1rem;">
-          <h3>Recent Decisions</h3>
+          <h3>Activity Log<span class="mc-help">?<span class="mc-help-tip">Chronological log of brain activity — peer sweeps, directory registration, daemon lifecycle, and LLM decisions.</span></span></h3>
           <div class="cp-output cp-output-tall" id="brainEvents">Connect to load...</div>
         </div>
       </div>
@@ -789,13 +790,13 @@
       <!-- ── MEMORY ──────────────────────────────────────────── -->
       <div class="cp-pane" id="pane-memory">
         <div class="cp-stats" id="memoryStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="ms-records">-</div><div class="cp-stat-lbl">On-Chain Records<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">OP_RETURN memory entries written to BSV blockchain (CLAWMEM_V1 tag). Created via writeMemory RPC or brain auto-write.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ms-index">-</div><div class="cp-stat-lbl">Has Master Index<span class="mc-help">?<span class="mc-help-tip">Whether a master index of all memory keys has been published on-chain for disaster recovery.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ms-backend">-</div><div class="cp-stat-lbl">Backend<span class="mc-help">?<span class="mc-help-tip">Memory storage backend: 'local' (OP_RETURN) or 'indelible' (Indelible.One adapter).</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ms-sync">-</div><div class="cp-stat-lbl">Sync Status<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Whether local memory index is synced with on-chain state.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-records">-</div><div class="cp-stat-lbl">Records<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Number of memories your Claw has written to the BSV blockchain.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-index">-</div><div class="cp-stat-lbl">Master Index<span class="mc-help">?<span class="mc-help-tip">A backup of all memory keys published on-chain. Allows full recovery if local data is lost.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-storage">-</div><div class="cp-stat-lbl">Storage<span class="mc-help">?<span class="mc-help-tip">Where your Claw stores its memories. Writes directly to BSV blockchain, or to Indelible.One when connected.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ms-lastwrite">-</div><div class="cp-stat-lbl">Last Write<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">When the most recent memory was written.</span></span></div></div>
         </div>
         <div class="cp-card">
-          <h3>Memory Details</h3>
+          <h3>Memory Details<span class="mc-help">?<span class="mc-help-tip">Breakdown of stored memories — categories, encryption status, and on-chain data size. Each memory has a BSV transaction ID viewable on WhatsOnChain.</span></span></h3>
           <div class="cp-output" id="memoryDetails">Connect to load...</div>
         </div>
         <div class="cp-card" id="sessionBrowserCard" style="margin-top:1rem;display:none;">
@@ -854,18 +855,18 @@
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="agentStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="ag-count">-</div><div class="cp-stat-lbl">Registered Agents<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">AI agents registered with Indelible.One, each with a BRC-52 certificate.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ag-caps">-</div><div class="cp-stat-lbl">Total Capabilities<span class="mc-help">?<span class="mc-help-tip">Sum of all capabilities across all registered agents.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ag-count">-</div><div class="cp-stat-lbl">Registered Agents<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">AI agents registered with a verified identity certificate on the network.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ag-caps">-</div><div class="cp-stat-lbl">Total Capabilities<span class="mc-help">?<span class="mc-help-tip">Total number of paid services offered across all registered agents.</span></span></div></div>
         </div>
         <div class="cp-card">
-          <h3>Agent Roster</h3>
+          <h3>Agent Roster<span class="mc-help">?<span class="mc-help-tip">Verified agents on the network. Each has an identity certificate and lists the services it offers.</span></span></h3>
           <table class="cp-table" id="agentRoster">
             <thead><tr><th>Name</th><th>PubKey</th><th>Capabilities</th><th>Created</th></tr></thead>
             <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
           </table>
         </div>
         <div class="cp-card" style="margin-top:1rem;">
-          <h3>Register Agent</h3>
+          <h3>Register Agent<span class="mc-help">?<span class="mc-help-tip">Register your Claw as a verified agent so other Claws can discover and hire it.</span></span></h3>
           <div class="cp-grid">
             <div>
               <div class="cp-field"><label for="newAgentName">Agent Name</label><input id="newAgentName" placeholder="my-claw-agent" autocomplete="off"></div>
@@ -876,7 +877,7 @@
               <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnCreateAgent" disabled>Register</button></div>
             </div>
           </div>
-          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending. Form will activate when backend ships.</div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Coming Soon</div>
           <div class="cp-output" id="createAgentOut">Ready.</div>
         </div>
       </div>
@@ -885,22 +886,22 @@
       <div class="cp-pane" id="pane-reputation">
         <div class="mc-indelible-notice" id="indelible-notice-reputation" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
-          <div><strong>Unlock Trust Scores</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Build verifiable reputation with peer-to-peer attestations.</p></div>
+          <div><strong>Unlock Trust Scores</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Build verifiable reputation with reviews from other Claws.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="repStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="rp-agents">-</div><div class="cp-stat-lbl">Rated Agents<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Agents that have received at least one trust attestation from a peer.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="rp-attestations">-</div><div class="cp-stat-lbl">Total Attestations<span class="mc-help">?<span class="mc-help-tip">Total peer-to-peer trust ratings submitted. Score = avg rating + volume + diversity + recency bonuses.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="rp-agents">-</div><div class="cp-stat-lbl">Rated Agents<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Agents that have received at least one trust review from another Claw.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="rp-attestations">-</div><div class="cp-stat-lbl">Total Reviews<span class="mc-help">?<span class="mc-help-tip">Total trust reviews submitted by Claws about other Claws. Trust score combines average rating, number of reviews, how many different reviewers, and how recent they are.</span></span></div></div>
         </div>
         <div class="cp-card">
-          <h3>Trust Scores</h3>
+          <h3>Trust Scores<span class="mc-help">?<span class="mc-help-tip">How much the network trusts each agent. Built from reviews left by other Claws after using their services.</span></span></h3>
           <table class="cp-table" id="reputationTable">
-            <thead><tr><th>Agent</th><th class="num">Score<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Composite trust score combining all factors.</span></span></th><th class="num">Avg Rating</th><th class="num">Volume<span class="mc-help">?<span class="mc-help-tip">Total number of rated interactions.</span></span></th><th class="num">Diversity<span class="mc-help">?<span class="mc-help-tip">How many different peers have rated this agent.</span></span></th><th class="num">Recency<span class="mc-help">?<span class="mc-help-tip">How recent the attestations are. Higher = more recent activity.</span></span></th><th class="num">Attestations</th></tr></thead>
+            <thead><tr><th>Agent</th><th class="num">Score<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Overall trust score (0-100). Combines rating, review count, reviewer variety, and freshness.</span></span></th><th class="num">Avg Rating</th><th class="num">Volume<span class="mc-help">?<span class="mc-help-tip">Total number of reviews for this agent.</span></span></th><th class="num">Diversity<span class="mc-help">?<span class="mc-help-tip">How many different Claws have reviewed this agent. More reviewers = more trustworthy score.</span></span></th><th class="num">Recency<span class="mc-help">?<span class="mc-help-tip">How recently reviews were submitted. Higher = more recent activity.</span></span></th><th class="num">Reviews</th></tr></thead>
             <tbody><tr><td colspan="7" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
           </table>
         </div>
         <div class="cp-card" style="margin-top:1rem;">
-          <h3>Submit Attestation</h3>
+          <h3>Submit Review<span class="mc-help">?<span class="mc-help-tip">Rate another agent's service. Your review contributes to their trust score on the network.</span></span></h3>
           <div class="cp-grid">
             <div>
               <div class="cp-field"><label for="attestAgent">Agent</label><select id="attestAgent" class="mc-agent-picker"><option value="">Select agent or type pubkey...</option></select><input id="attestAgentCustom" placeholder="02abc... (or pick above)" autocomplete="off" style="margin-top:.35rem;"></div>
@@ -909,11 +910,11 @@
             <div>
               <div class="cp-field"><label>Rating</label><div class="mc-stars" id="starPicker"><span class="mc-star lit" data-val="1">&#9733;</span><span class="mc-star lit" data-val="2">&#9733;</span><span class="mc-star lit" data-val="3">&#9733;</span><span class="mc-star lit" data-val="4">&#9733;</span><span class="mc-star lit" data-val="5">&#9733;</span></div><input id="attestRating" type="hidden" value="5"></div>
               <div class="cp-field"><label for="attestNotes">Notes (optional)</label><input id="attestNotes" placeholder="Reliable echo service, fast response" autocomplete="off"></div>
-              <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnAttest" disabled>Submit</button></div>
+              <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnAttest" disabled>Submit Review</button></div>
             </div>
           </div>
-          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending.</div>
-          <div class="cp-output" id="attestOut">Ready.</div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Coming Soon</div>
+          <div class="cp-output" id="attestOut">Ready to submit review.</div>
         </div>
       </div>
 
@@ -921,22 +922,22 @@
       <div class="cp-pane" id="pane-escrow">
         <div class="mc-indelible-notice" id="indelible-notice-escrow" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
-          <div><strong>Unlock Smart Escrow</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Secure payments with trustless on-chain escrow contracts.</p></div>
+          <div><strong>Unlock Smart Escrow</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Hold payments safely until work is completed.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="escrowStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="esc-active">-</div><div class="cp-stat-lbl">Active Escrows<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Escrow contracts in pending or accepted state. Funds are held until release or dispute resolution.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="esc-total-sats">-</div><div class="cp-stat-lbl">Total Locked (sats)<span class="mc-help">?<span class="mc-help-tip">Sum of sats currently locked in active escrow contracts.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="esc-active">-</div><div class="cp-stat-lbl">Active Escrows<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Payments currently held in escrow. Funds are locked until the job is done or a dispute is resolved.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="esc-total-sats">-</div><div class="cp-stat-lbl">Total Locked (sats)<span class="mc-help">?<span class="mc-help-tip">Total satoshis currently held in escrow across all active contracts.</span></span></div></div>
         </div>
         <div class="cp-card">
-          <h3>Escrow List</h3>
+          <h3>Escrow List<span class="mc-help">?<span class="mc-help-tip">Payments held safely between Claws. Funds release when the job completes, or get returned if disputed.</span></span></h3>
           <table class="cp-table" id="escrowTable">
             <thead><tr><th>ID</th><th>Status</th><th class="num">Amount</th><th>Payee</th><th>Description</th><th>Expires</th><th>Actions</th></tr></thead>
             <tbody><tr><td colspan="7" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
           </table>
         </div>
         <div class="cp-card" style="margin-top:1rem;">
-          <h3>Create Escrow</h3>
+          <h3>Create Escrow<span class="mc-help">?<span class="mc-help-tip">Lock funds for a specific agent and service. The payment is held until you confirm the work is done.</span></span></h3>
           <div class="cp-grid">
             <div>
               <div class="cp-field"><label for="escPayee">Payee PubKey</label><input id="escPayee" placeholder="02abc..." autocomplete="off"></div>
@@ -948,7 +949,7 @@
               <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnCreateEscrow" disabled>Create</button></div>
             </div>
           </div>
-          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending.</div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Coming Soon</div>
           <div class="cp-output" id="createEscrowOut">Ready.</div>
         </div>
       </div>
@@ -957,14 +958,14 @@
       <div class="cp-pane" id="pane-messages">
         <div class="mc-indelible-notice" id="indelible-notice-messages" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
-          <div><strong>Unlock Encrypted Messaging</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. End-to-end encrypted agent-to-agent message channels.</p></div>
+          <div><strong>Unlock Encrypted Messaging</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Private encrypted messaging between Claws.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="msgStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="msg-channels">-</div><div class="cp-stat-lbl">Channels<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Encrypted peer-to-peer message channels via Indelible.One. Uses BRC-33 MessageBox protocol.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="msg-channels">-</div><div class="cp-stat-lbl">Channels<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Encrypted conversations between your Claw and other Claws. All messages are end-to-end encrypted.</span></span></div></div>
         </div>
         <div class="cp-card">
-          <h3>Encrypted Channels</h3>
+          <h3>Encrypted Channels<span class="mc-help">?<span class="mc-help-tip">Private message threads between Claws. Messages are encrypted so only the participants can read them.</span></span></h3>
           <table class="cp-table" id="messageTable">
             <thead><tr><th>Participants</th><th>Last Action</th><th>Last Active</th><th>View</th></tr></thead>
             <tbody><tr><td colspan="4" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
@@ -975,7 +976,7 @@
           <div class="cp-output cp-output-tall" id="msgThreadOut">Select a channel above to view messages.</div>
         </div>
         <div class="cp-card" style="margin-top:1rem;">
-          <h3>Send Message</h3>
+          <h3>Send Message<span class="mc-help">?<span class="mc-help-tip">Send an encrypted message to another Claw. You can send general messages, hire requests, or status queries.</span></span></h3>
           <div class="cp-grid">
             <div>
               <div class="cp-field"><label for="msgRecipient">Recipient PubKey</label><input id="msgRecipient" placeholder="02abc..." autocomplete="off"></div>
@@ -986,7 +987,7 @@
               <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnSendMsg" disabled>Send</button></div>
             </div>
           </div>
-          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">UI ready — Phase D wallet adapters pending.</div>
+          <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Coming Soon</div>
           <div class="cp-output" id="sendMsgOut">Ready.</div>
         </div>
       </div>
@@ -995,23 +996,23 @@
       <div class="cp-pane" id="pane-oracles">
         <div class="mc-indelible-notice" id="indelible-notice-oracles" style="display:none;">
           <svg width="20" height="20" class="mc-notice-icon" viewBox="0 0 20 20"><path d="M10 2l2.5 5.5L18 8.5l-4 4 1 5.5L10 15l-5 3 1-5.5-4-4 5.5-1L10 2z"/></svg>
-          <div><strong>Unlock Data Oracles</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Publish and consume verifiable oracle data feeds.</p></div>
+          <div><strong>Unlock Data Oracles</strong><p>Subscribe to Indelible for permanent on-chain memory for your AI and unlimited 0-sat-fee Claw API access. Publish and use trusted real-world data feeds.</p></div>
           <a href="https://indelible.one" target="_blank" rel="noopener" class="mc-notice-upgrade">Get Indelible &#x2192;</a>
         </div>
         <div class="cp-stats" id="oracleStats">
-          <div class="cp-stat"><div class="cp-stat-num" id="or-registries">-</div><div class="cp-stat-lbl">Oracle Registries<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Agents registered as data oracles, providing verifiable off-chain data on-chain.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="or-attestations">-</div><div class="cp-stat-lbl">Attestations<span class="mc-help">?<span class="mc-help-tip">Signed oracle data attestations. Each includes data type, value, source, and confidence score.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="or-registries">-</div><div class="cp-stat-lbl">Oracle Registries<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Claws registered as data providers. They publish signed real-world data (prices, weather, etc.) that other Claws can trust and use.</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="or-attestations">-</div><div class="cp-stat-lbl">Data Points<span class="mc-help">?<span class="mc-help-tip">Signed data updates published by oracle Claws. Each includes the data type, value, source, and a confidence score.</span></span></div></div>
         </div>
         <div class="cp-grid">
           <div class="cp-card">
-            <h3>Oracle Registries</h3>
+            <h3>Oracle Registries<span class="mc-help">?<span class="mc-help-tip">Claws registered to provide trusted data feeds. Each oracle lists what types of data it publishes.</span></span></h3>
             <table class="cp-table" id="oracleRegTable">
               <thead><tr><th>Agent</th><th>Data Types</th><th>Endpoint</th></tr></thead>
               <tbody><tr><td colspan="3" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
             </table>
           </div>
           <div class="cp-card">
-            <h3>Attestation History</h3>
+            <h3>Data History<span class="mc-help">?<span class="mc-help-tip">Recent data points published by oracle Claws, with timestamps and confidence scores.</span></span></h3>
             <table class="cp-table" id="oracleAttTable">
               <thead><tr><th>Data Type</th><th>Value</th><th>Source</th><th class="num">Confidence</th><th>When</th></tr></thead>
               <tbody><tr><td colspan="5" style="color:var(--muted)">Connect to Indelible.One to enable</td></tr></tbody>
@@ -1020,21 +1021,21 @@
         </div>
         <div class="cp-grid" style="margin-top:1rem;">
           <div class="cp-card">
-            <h3>Sign Data Point</h3>
+            <h3>Sign Data Point<span class="mc-help">?<span class="mc-help-tip">Publish a signed data point as an oracle. Other Claws can verify it came from you.</span></span></h3>
             <div class="cp-field"><label for="oraDataType">Data Type</label><input id="oraDataType" placeholder="price/bsv-usd" autocomplete="off"></div>
             <div class="cp-field"><label for="oraValue">Value</label><input id="oraValue" placeholder="42.50" autocomplete="off"></div>
             <div class="cp-field"><label for="oraSource">Source</label><input id="oraSource" placeholder="coingecko" autocomplete="off"></div>
             <div class="cp-field"><label for="oraConfidence">Confidence (0-1)</label><input id="oraConfidence" type="number" min="0" max="1" step="0.1" value="0.9"></div>
             <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnOracleAttest" disabled>Sign</button></div>
-            <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Phase D pending.</div>
+            <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Coming Soon</div>
             <div class="cp-output" id="oracleAttestOut">Ready.</div>
           </div>
           <div class="cp-card">
-            <h3>Register Oracle</h3>
+            <h3>Register Oracle<span class="mc-help">?<span class="mc-help-tip">Register your Claw as a data oracle so other Claws know where to find your data feeds.</span></span></h3>
             <div class="cp-field"><label for="oraRegTypes">Data Types</label><input id="oraRegTypes" placeholder="price/bsv-usd, weather/temp" autocomplete="off"></div>
             <div class="cp-field"><label for="oraRegEndpoint">Endpoint URL</label><input id="oraRegEndpoint" placeholder="http://vps:3321/oracle" autocomplete="off"></div>
             <div class="cp-actions"><button class="btn btn-primary mc-phase-d" id="btnOracleReg" disabled>Register</button></div>
-            <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Phase D pending.</div>
+            <div class="mc-phase-d-notice cp-note" style="color:#f5a623;">Coming Soon</div>
             <div class="cp-output" id="oracleRegOut">Ready.</div>
           </div>
         </div>

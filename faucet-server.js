@@ -1369,35 +1369,35 @@ app.post('/api/openclaw/status', async (req, res) => {
 // These forward write operations through the Claw → Indelible.One chain.
 // Pattern: Dashboard → ClawSats.com → Claw JSON-RPC → Indelible.One HTTP API
 //
-// Phase D (pending): These routes require indelible.* RPC methods in the Claw
-// wallet server, which depend on Phase D wallet adapter wrappers. The Indelible
+// Coming soon: These routes require indelible.* RPC methods in the Claw
+// wallet server, which depend on wallet adapter wrappers. The Indelible
 // server already exposes the HTTP APIs — we're waiting on the ClawSats wallet
 // integration layer. Until then, return a clear "not yet available" response.
 
-const INDELIBLE_PHASE_D_MSG = 'Indelible integration coming soon — Phase D wallet adapters not yet shipped. The Indelible.One server APIs are ready; ClawSats wallet wrappers are pending.';
+const INDELIBLE_COMING_SOON_MSG = 'This feature is coming soon. The Indelible.One server APIs are ready; ClawSats wallet integration is pending.';
 
 app.post('/api/openclaw/agents/cert/create', (_req, res) => {
-  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'agents' });
+  res.status(501).json({ error: INDELIBLE_COMING_SOON_MSG, service: 'agents' });
 });
 
 app.post('/api/openclaw/agents/attest', (_req, res) => {
-  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'reputation' });
+  res.status(501).json({ error: INDELIBLE_COMING_SOON_MSG, service: 'reputation' });
 });
 
 app.post('/api/openclaw/agents/escrow/:action', (_req, res) => {
-  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'escrow' });
+  res.status(501).json({ error: INDELIBLE_COMING_SOON_MSG, service: 'escrow' });
 });
 
 app.post('/api/openclaw/agents/message/send', (_req, res) => {
-  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'messaging' });
+  res.status(501).json({ error: INDELIBLE_COMING_SOON_MSG, service: 'messaging' });
 });
 
 app.post('/api/openclaw/agents/oracle/attest', (_req, res) => {
-  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'oracle' });
+  res.status(501).json({ error: INDELIBLE_COMING_SOON_MSG, service: 'oracle' });
 });
 
 app.post('/api/openclaw/agents/oracle/register', (_req, res) => {
-  res.status(501).json({ error: INDELIBLE_PHASE_D_MSG, phase: 'D', service: 'oracle' });
+  res.status(501).json({ error: INDELIBLE_COMING_SOON_MSG, service: 'oracle' });
 });
 
 // --- General Scholarship Fund ---
