@@ -37,6 +37,8 @@
  *   POST /api/openclaw/take-course     — submit quiz answers through authenticated JSON-RPC
  *   POST /api/openclaw/hire            — hire another Claw through authenticated JSON-RPC
  *   POST /api/openclaw/status          — fetch live dashboard metrics from a Claw's /api/status
+ *   POST /api/demo/try                 — one-click demo: runs 402 payment flow against live Claw
+ *   GET  /api/demo/status              — demo budget remaining + availability
  *
  * Run: FAUCET_ROOT_KEY_HEX=<key> node faucet-server.js
  * The faucet also serves the static website files.
@@ -95,6 +97,23 @@ const RATE_LIMIT_DISTRIBUTE_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMI
 const RATE_LIMIT_OPENCLAW_PROXY_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_OPENCLAW_PROXY_PER_MIN || '30', 10));
 const RATE_LIMIT_WINDOW_MS = Math.max(1000, parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10));
 
+// --- Demo "Try a Claw" config ---
+const DEMO_ROOT_KEY_HEX = process.env.DEMO_ROOT_KEY_HEX || '';
+const DEMO_CLAW_ENDPOINT = process.env.DEMO_CLAW_ENDPOINT || 'http://vmi3083711.contaboserver.net:3321';
+const DEMO_CAPABILITY = process.env.DEMO_CAPABILITY || 'echo';
+const DEMO_ENABLED = String(process.env.DEMO_ENABLED || 'true').toLowerCase() !== 'false';
+const DEMO_DAILY_CAP_SATS = Math.max(0, parseInt(process.env.DEMO_DAILY_CAP_SATS || '500', 10));
+const DEMO_TOTAL_CAP_SATS = Math.max(0, parseInt(process.env.DEMO_TOTAL_CAP_SATS || '10000', 10));
+const RATE_LIMIT_DEMO_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_DEMO_PER_MIN || '3', 10));
+const DEMO_BUDGET_PATH = path.join(__dirname, 'demo-budget.json');
+
+// ClawSats protocol constants (for building 402 payments)
+const FEE_IDENTITY_KEY = '0307102dc99293edba7f75bf881712652879c151b454ebf5d8e7a0ba07c4d17364';
+const FEE_SATS = 2;
+const PAYMENT_PROTOCOL_ID = [2, '3241645161d8'];
+const PROVIDER_DERIVATION_SUFFIX = 'clawsats';
+const FEE_DERIVATION_SUFFIX = 'fee';
+
 app.set('trust proxy', TRUST_PROXY_HOPS);
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -122,6 +141,14 @@ let scholarshipWalletBackend = 'none';
 let scholarshipIdentityKey = '';
 let scholarshipAddress = '';
 const p2pkhSpentUtxos = new Set(); // tracks txid:vout spent in this process lifetime (prevents double-spend in distribution loops)
+
+// --- Demo wallet (separate or alias to faucet) ---
+let demoWallet = null;
+let demoWalletReady = false;
+let demoWalletBackend = 'none';
+let demoIdentityKey = '';
+let demoAddress = '';
+let demoLock = Promise.resolve(); // concurrency mutex: one demo at a time
 
 function getPkgVersion(name) {
   try {
@@ -392,6 +419,139 @@ async function initScholarshipWallet() {
     fallbackToFaucetWallet('Falling back to shared faucet wallet (reserve protections active).');
   }
 }
+
+// --- Demo wallet initialization ---
+
+function fallbackDemoToFaucet(reason) {
+  // In production, refuse to share the faucet wallet for demos
+  if (process.env.NODE_ENV === 'production') {
+    console.warn(`[DEMO] ${reason}`);
+    console.warn('[DEMO] Shared faucet fallback disabled in production. Set DEMO_ROOT_KEY_HEX for a dedicated demo wallet.');
+    return; // demoWalletReady stays false → demo endpoint returns 503
+  }
+  demoWallet = faucetWallet;
+  demoWalletReady = walletReady;
+  demoWalletBackend = walletBackend + ' (shared)';
+  demoIdentityKey = faucetIdentityKey;
+  demoAddress = faucetAddress;
+  console.log(`[DEMO] ${reason}`);
+  console.log('[DEMO] ⚠️  Shared wallet fallback is for development only.');
+}
+
+async function initDemoWallet() {
+  if (!DEMO_ENABLED) {
+    console.log('[DEMO] Demo feature disabled (DEMO_ENABLED=false).');
+    return;
+  }
+
+  if (!DEMO_ROOT_KEY_HEX) {
+    fallbackDemoToFaucet('Using shared faucet wallet for demos (set DEMO_ROOT_KEY_HEX for dedicated wallet)');
+    return;
+  }
+
+  if (DEMO_ROOT_KEY_HEX.length !== 64) {
+    fallbackDemoToFaucet('DEMO_ROOT_KEY_HEX invalid (need 64 hex chars). Falling back to faucet wallet.');
+    return;
+  }
+
+  try {
+    const { Setup } = require('@bsv/wallet-toolbox');
+    const { PrivateKey } = require('@bsv/sdk');
+
+    const rootKey = PrivateKey.fromHex(DEMO_ROOT_KEY_HEX);
+    const identityKey = rootKey.toPublicKey().toString();
+    const address = pubkeyToAddress(identityKey);
+
+    demoIdentityKey = identityKey;
+    demoAddress = address;
+
+    console.log(`[DEMO] Derived identity key: ${identityKey}`);
+    console.log(`[DEMO] Derived address: ${address}`);
+
+    const dataDir = path.join(__dirname, 'faucet-data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+    const env = {
+      chain: 'main',
+      identityKey,
+      identityKey2: identityKey,
+      filePath: undefined,
+      taalApiKey: '',
+      devKeys: { [identityKey]: DEMO_ROOT_KEY_HEX },
+      mySQLConnection: '{}'
+    };
+
+    if (WALLET_STORAGE_MODE === 'sqlite') {
+      try {
+        const sw = await Setup.createWalletSQLite({
+          env,
+          rootKeyHex: DEMO_ROOT_KEY_HEX,
+          filePath: path.join(dataDir, 'demo.sqlite'),
+          databaseName: 'clawsats-demo'
+        });
+        demoWallet = sw.wallet;
+        demoWalletBackend = 'sqlite';
+      } catch (sqliteErr) {
+        const sqliteMsg = sqliteErr && sqliteErr.message ? sqliteErr.message : String(sqliteErr);
+        console.warn(`[DEMO] SQLite init failed (${sqliteMsg}), falling back to memory.`);
+        demoWallet = await Setup.createWalletClientNoEnv({
+          chain: 'main',
+          rootKeyHex: DEMO_ROOT_KEY_HEX
+        });
+        demoWalletBackend = 'memory';
+      }
+    } else {
+      demoWallet = await Setup.createWalletClientNoEnv({
+        chain: 'main',
+        rootKeyHex: DEMO_ROOT_KEY_HEX
+      });
+      demoWalletBackend = 'memory';
+    }
+
+    demoWalletReady = true;
+    console.log(`[DEMO] ✅ Demo wallet initialized (${demoWalletBackend}) for ${identityKey.substring(0, 24)}...`);
+    console.log(`[DEMO]    BSV Address: ${address}`);
+    console.log(`[DEMO]    Fund this address to enable "Try a Claw" demos.`);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.error(`[DEMO] ❌ Demo wallet init failed: ${msg}`);
+    console.error(formatErr(err));
+    fallbackDemoToFaucet('Falling back to shared faucet wallet for demos.');
+  }
+}
+
+// --- Demo budget ledger ---
+
+function loadDemoBudget() {
+  try {
+    if (fs.existsSync(DEMO_BUDGET_PATH)) {
+      return JSON.parse(fs.readFileSync(DEMO_BUDGET_PATH, 'utf8'));
+    }
+  } catch {}
+  return { totalSpent: 0, dailySpent: 0, dailyResetDate: todayDateStr(), demos: [] };
+}
+
+function saveDemoBudget(budget) {
+  try {
+    fs.writeFileSync(DEMO_BUDGET_PATH, JSON.stringify(budget, null, 2));
+  } catch (err) {
+    console.warn(`[DEMO] Failed to save demo budget: ${err && err.message ? err.message : String(err)}`);
+  }
+}
+
+function todayDateStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function resetDailyIfNeeded(budget) {
+  const today = todayDateStr();
+  if (budget.dailyResetDate !== today) {
+    budget.dailySpent = 0;
+    budget.dailyResetDate = today;
+  }
+}
+
+let demoBudget = loadDemoBudget();
 
 /**
  * Build a P2PKH locking script for a compressed public key.
@@ -2176,6 +2336,311 @@ app.post('/api/scholarships/distribute', async (req, res) => {
   }
 });
 
+// --- Demo "Try a Claw" endpoints ---
+
+/**
+ * Run a full 402 payment flow against the live Claw on behalf of the visitor.
+ * Steps: challenge → parse → pay → execute → record
+ */
+async function executeDemoFlow() {
+  const steps = { challenge: 'pending', parse: 'pending', pay: 'pending', execute: 'pending', receipt: 'pending' };
+  const demoParams = DEMO_CAPABILITY === 'echo'
+    ? { message: 'Hello from ClawSats!' }
+    : {};
+
+  // Step 1: Challenge — POST /call/:capability to get 402
+  steps.challenge = 'in_progress';
+  let challengeRes;
+  try {
+    challengeRes = await fetch(`${DEMO_CLAW_ENDPOINT}/call/${DEMO_CAPABILITY}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-bsv-identity-key': demoIdentityKey
+      },
+      body: JSON.stringify(demoParams),
+      signal: AbortSignal.timeout(15000)
+    });
+  } catch (err) {
+    steps.challenge = 'error';
+    throw Object.assign(new Error(`Challenge failed: ${err.message || err}`), { steps });
+  }
+
+  if (challengeRes.status !== 402) {
+    // If it returned 200, the Claw gave a free trial — still a valid demo
+    if (challengeRes.ok) {
+      steps.challenge = 'ok';
+      steps.parse = 'skipped';
+      steps.pay = 'skipped';
+      steps.execute = 'ok';
+      steps.receipt = 'ok';
+      const body = await challengeRes.json().catch(() => ({}));
+      return {
+        success: true,
+        steps,
+        freeTrial: true,
+        result: body.result || body,
+        cost: { capability: 0, fee: 0, total: 0 },
+        receipt: body.receipt || null,
+        proof: null
+      };
+    }
+    steps.challenge = 'error';
+    const errText = await challengeRes.text().catch(() => '');
+    throw Object.assign(new Error(`Expected 402, got ${challengeRes.status}: ${errText.slice(0, 200)}`), { steps });
+  }
+  steps.challenge = 'ok';
+
+  // Step 2: Parse challenge headers
+  steps.parse = 'in_progress';
+  const satoshisRequired = parseInt(challengeRes.headers.get('x-bsv-payment-satoshis-required') || '0', 10);
+  const derivationPrefix = challengeRes.headers.get('x-bsv-payment-derivation-prefix') || '';
+  const providerIdentityKey = challengeRes.headers.get('x-bsv-identity-key') || '';
+  const feeKey = challengeRes.headers.get('x-clawsats-fee-identity-key') || '';
+  const feeSatsRequired = parseInt(challengeRes.headers.get('x-clawsats-fee-satoshis-required') || '2', 10);
+
+  if (!derivationPrefix || !providerIdentityKey || satoshisRequired <= 0) {
+    steps.parse = 'error';
+    throw Object.assign(new Error('Invalid 402 challenge headers (missing derivation prefix, provider key, or satoshis).'), { steps });
+  }
+  if (feeKey && feeKey !== FEE_IDENTITY_KEY) {
+    steps.parse = 'error';
+    throw Object.assign(new Error('Fee identity key mismatch — possible spoofed challenge.'), { steps });
+  }
+  steps.parse = 'ok';
+
+  // Step 3: Build payment transaction
+  steps.pay = 'in_progress';
+  let txBase64, txid;
+  try {
+    // Derive BRC-29 locking scripts for provider + fee outputs
+    const providerScript = await deriveBRC29LockingScript(
+      providerIdentityKey, derivationPrefix, PROVIDER_DERIVATION_SUFFIX, demoWallet
+    );
+    const feeScript = await deriveBRC29LockingScript(
+      FEE_IDENTITY_KEY, derivationPrefix, FEE_DERIVATION_SUFFIX, demoWallet
+    );
+
+    // Build two-output payment tx
+    const actionResult = await demoWallet.createAction({
+      description: `ClawSats demo: ${DEMO_CAPABILITY} (${satoshisRequired} + ${feeSatsRequired} sats)`,
+      outputs: [
+        {
+          satoshis: satoshisRequired,
+          lockingScript: providerScript,
+          outputDescription: 'Demo capability payment',
+          tags: ['clawsats-demo'],
+          basket: 'clawsats-demo'
+        },
+        {
+          satoshis: feeSatsRequired,
+          lockingScript: feeScript,
+          outputDescription: 'ClawSats protocol fee',
+          tags: ['clawsats-demo-fee'],
+          basket: 'clawsats-demo'
+        }
+      ],
+      labels: ['clawsats-demo'],
+      options: {
+        signAndProcess: true,
+        acceptDelayedBroadcast: false,
+        randomizeOutputs: false
+      }
+    });
+
+    txBase64 = extractActionTxBase64(actionResult);
+    txid = actionResult.txid || null;
+  } catch (err) {
+    steps.pay = 'error';
+    throw Object.assign(new Error(`Payment failed: ${err.message || err}`), { steps });
+  }
+  steps.pay = 'ok';
+
+  // Step 4: Retry with payment proof
+  steps.execute = 'in_progress';
+  let executeRes, executeBody;
+  try {
+    const paymentHeader = JSON.stringify({
+      derivationPrefix,
+      derivationSuffix: PROVIDER_DERIVATION_SUFFIX,
+      transaction: txBase64
+    });
+
+    executeRes = await fetch(`${DEMO_CLAW_ENDPOINT}/call/${DEMO_CAPABILITY}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-bsv-identity-key': demoIdentityKey,
+        'x-bsv-payment': paymentHeader
+      },
+      body: JSON.stringify(demoParams),
+      signal: AbortSignal.timeout(20000)
+    });
+
+    executeBody = await executeRes.json().catch(() => ({}));
+
+    if (!executeRes.ok) {
+      steps.execute = 'error';
+      const errMsg = executeBody.error || executeBody.message || `HTTP ${executeRes.status}`;
+      throw Object.assign(new Error(`Execution rejected: ${errMsg}`), { steps });
+    }
+  } catch (err) {
+    if (steps.execute !== 'error') steps.execute = 'error';
+    throw Object.assign(new Error(err.message), { steps: err.steps || steps });
+  }
+  steps.execute = 'ok';
+
+  // Step 5: Verify receipt — the whole point is proving the loop
+  if (!executeBody.receipt) {
+    steps.receipt = 'error';
+    throw Object.assign(new Error('Capability executed but no receipt returned — proof incomplete.'), { steps });
+  }
+  steps.receipt = 'ok';
+
+  const totalCost = satoshisRequired + feeSatsRequired;
+  return {
+    success: true,
+    steps,
+    freeTrial: false,
+    result: executeBody.result || executeBody,
+    cost: {
+      capability: satoshisRequired,
+      fee: feeSatsRequired,
+      total: totalCost
+    },
+    receipt: executeBody.receipt || null,
+    proof: txid ? {
+      txid,
+      whatsonchain: `https://whatsonchain.com/tx/${txid}`
+    } : null
+  };
+}
+
+app.post('/api/demo/try', async (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress;
+
+  // Feature flag
+  if (!DEMO_ENABLED) {
+    return res.status(503).json({ error: 'Demo feature is currently disabled.' });
+  }
+
+  // Wallet check
+  if (!demoWalletReady || !demoWallet) {
+    return res.status(503).json({ error: 'Demo wallet is not initialized.' });
+  }
+
+  // Rate limit
+  if (!checkRateLimit(ip, 'demo-try', RATE_LIMIT_DEMO_PER_MIN)) {
+    return res.status(429).json({ error: 'Too many demo requests. Try again in a minute.' });
+  }
+
+  // Budget checks
+  resetDailyIfNeeded(demoBudget);
+  if (DEMO_DAILY_CAP_SATS > 0 && demoBudget.dailySpent >= DEMO_DAILY_CAP_SATS) {
+    return res.status(429).json({ error: 'Daily demo budget exhausted. Try again tomorrow.' });
+  }
+  if (DEMO_TOTAL_CAP_SATS > 0 && demoBudget.totalSpent >= DEMO_TOTAL_CAP_SATS) {
+    return res.status(429).json({ error: 'Total demo budget exhausted.' });
+  }
+
+  // Concurrency mutex: queue behind any in-flight demo
+  let release;
+  const prev = demoLock;
+  demoLock = new Promise(resolve => { release = resolve; });
+  await prev;
+
+  const startMs = Date.now();
+  try {
+    const result = await executeDemoFlow();
+
+    // Record spend
+    if (!result.freeTrial) {
+      const totalSats = result.cost.total;
+      demoBudget.totalSpent += totalSats;
+      demoBudget.dailySpent += totalSats;
+      demoBudget.demos.push({
+        ts: new Date().toISOString(),
+        ip: ip || 'unknown',
+        sats: totalSats,
+        txid: result.proof?.txid || null,
+        durationMs: Date.now() - startMs
+      });
+      // Keep last 1000 demo records
+      if (demoBudget.demos.length > 1000) {
+        demoBudget.demos = demoBudget.demos.slice(-1000);
+      }
+      saveDemoBudget(demoBudget);
+
+      writeSpendAudit({
+        reason: 'demo-try',
+        capability: DEMO_CAPABILITY,
+        satoshis: totalSats,
+        txid: result.proof?.txid || null,
+        durationMs: Date.now() - startMs,
+        walletBackend: demoWalletBackend
+      });
+    }
+
+    console.log(`[DEMO] ✅ Demo completed in ${Date.now() - startMs}ms — ${result.cost.total} sats`);
+    res.json(result);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    const steps = err.steps || {};
+    console.error(`[DEMO] ❌ Demo failed: ${msg}`);
+
+    writeSpendAudit({
+      reason: 'demo-try-failed',
+      capability: DEMO_CAPABILITY,
+      error: msg,
+      steps,
+      durationMs: Date.now() - startMs,
+      walletBackend: demoWalletBackend
+    });
+
+    res.status(500).json({
+      success: false,
+      error: msg,
+      steps,
+      cost: { capability: 0, fee: 0, total: 0 }
+    });
+  } finally {
+    release();
+  }
+});
+
+app.get('/api/demo/status', (req, res) => {
+  resetDailyIfNeeded(demoBudget);
+  const dailyRemaining = DEMO_DAILY_CAP_SATS > 0
+    ? Math.max(0, DEMO_DAILY_CAP_SATS - demoBudget.dailySpent)
+    : null;
+  const totalRemaining = DEMO_TOTAL_CAP_SATS > 0
+    ? Math.max(0, DEMO_TOTAL_CAP_SATS - demoBudget.totalSpent)
+    : null;
+  const totalDemos = demoBudget.demos.length;
+  const todayStr = todayDateStr();
+  const demosToday = demoBudget.demos.filter(d => d.ts && d.ts.startsWith(todayStr)).length;
+
+  res.json({
+    enabled: DEMO_ENABLED && demoWalletReady,
+    capability: DEMO_CAPABILITY,
+    clawEndpoint: DEMO_CLAW_ENDPOINT,
+    dailyCapSats: DEMO_DAILY_CAP_SATS,
+    totalCapSats: DEMO_TOTAL_CAP_SATS,
+    dailySpent: demoBudget.dailySpent,
+    totalSpent: demoBudget.totalSpent,
+    dailyRemaining,
+    totalRemaining,
+    demosToday,
+    totalDemos,
+    demoWallet: {
+      ready: demoWalletReady,
+      backend: demoWalletBackend,
+      address: demoAddress || null,
+      dedicated: !!DEMO_ROOT_KEY_HEX
+    }
+  });
+});
+
 // --- Static file serving ---
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 app.use('/css', express.static(path.join(__dirname, 'css')));
@@ -2199,6 +2664,7 @@ app.get('*', (req, res) => {
 async function main() {
   await initWallet();
   await initScholarshipWallet();
+  await initDemoWallet();
   if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[STARTUP] FATAL: SCHOLARSHIP_DISTRIBUTE_TOKEN must be set in production. Set it in .env and restart.');
@@ -2248,9 +2714,18 @@ async function main() {
     } else {
       console.log(`   Scholarship: shared faucet wallet (set SCHOLARSHIP_ROOT_KEY_HEX for separation)`);
     }
+    if (DEMO_ENABLED && demoWalletReady) {
+      console.log(`   Demo wallet: ✅ ready (${demoWalletBackend}${DEMO_ROOT_KEY_HEX ? ', dedicated' : ', shared'}) — ${demoAddress || 'no address'}`);
+      console.log(`   Demo target: ${DEMO_CLAW_ENDPOINT} → ${DEMO_CAPABILITY}`);
+    } else if (DEMO_ENABLED) {
+      console.log(`   Demo: ⚠️  enabled but wallet not ready`);
+    } else {
+      console.log(`   Demo: disabled`);
+    }
     if (SEED_CLAW_ENDPOINT) console.log(`   Seed Claw: ${SEED_CLAW_ENDPOINT}`);
     console.log(`   Status: GET /api/faucet/status`);
     console.log(`   Drip:   POST /api/faucet/drip { identityKey }`);
+    console.log(`   Demo:   POST /api/demo/try`);
     console.log(`   Peers:  GET /api/network/seed-peers\n`);
   });
   server.on('error', err => {

@@ -102,7 +102,11 @@
       body: JSON.stringify(body)
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || res.status + ' ' + res.statusText);
+    if (!res.ok) {
+      const err = new Error(data?.error || res.status + ' ' + res.statusText);
+      err.data = data; // preserve full response body for structured error handling
+      throw err;
+    }
     return data;
   }
 
@@ -1687,6 +1691,140 @@
     }
   }
 
+  // ── Demo "Try a Claw" ────────────────────────────────────────
+
+  function setDemoStep(stepId, state) {
+    const step = el(stepId);
+    if (!step) return;
+    step.className = 'demo-step ' + state;
+  }
+
+  function resetDemoSteps() {
+    ['ds-challenge', 'ds-pay', 'ds-execute', 'ds-receipt'].forEach(id => {
+      setDemoStep(id, '');
+    });
+  }
+
+  async function loadDemoStatus() {
+    try {
+      const res = await fetch('/api/demo/status');
+      const data = await res.json();
+      const badge = el('demoBudgetBadge');
+      const card = el('demoCard');
+      const btn = el('btnTryDemo');
+
+      if (!data.enabled) {
+        if (card) card.style.display = 'none';
+        return;
+      }
+
+      if (badge) {
+        if (data.dailyRemaining !== null && data.dailyRemaining !== undefined) {
+          const approxDemos = Math.floor(data.dailyRemaining / 12);
+          badge.textContent = approxDemos > 0 ? approxDemos + ' demos left today' : 'Daily limit reached';
+          if (approxDemos <= 0 && btn) btn.disabled = true;
+        }
+      }
+    } catch {
+      // Demo status unavailable — hide the card silently
+      const card = el('demoCard');
+      if (card) card.style.display = 'none';
+    }
+  }
+
+  async function tryDemo() {
+    const btn = el('btnTryDemo');
+    const stepsEl = el('demoSteps');
+    const resultEl = el('demoResult');
+    const errorEl = el('demoError');
+    const statsEl = el('demoStats');
+    const outputEl = el('demoOutput');
+
+    // Reset UI
+    if (btn) btn.disabled = true;
+    if (stepsEl) stepsEl.style.display = 'block';
+    if (resultEl) resultEl.style.display = 'none';
+    if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
+    resetDemoSteps();
+
+    // Animate steps progressively
+    setDemoStep('ds-challenge', 'active');
+
+    try {
+      const data = await postJSON('/api/demo/try', {});
+
+      // Update steps from response
+      const s = data.steps || {};
+      setDemoStep('ds-challenge', s.challenge === 'ok' ? 'ok' : s.challenge === 'skipped' ? 'skipped' : 'error');
+      setDemoStep('ds-pay', s.pay === 'ok' ? 'ok' : s.pay === 'skipped' ? 'skipped' : (s.pay === 'error' ? 'error' : 'ok'));
+      setDemoStep('ds-execute', s.execute === 'ok' ? 'ok' : (s.execute === 'error' ? 'error' : 'ok'));
+      setDemoStep('ds-receipt', s.receipt === 'ok' ? 'ok' : (s.receipt === 'missing' ? 'skipped' : 'ok'));
+
+      if (data.success) {
+        // Show result
+        if (resultEl) resultEl.style.display = 'block';
+
+        // Stats row
+        if (statsEl) {
+          const costLabel = data.freeTrial ? 'Free trial' : fmt(data.cost.total) + ' sats';
+          statsEl.innerHTML =
+            '<div class="cp-stat cp-stat-green"><div class="cp-stat-num">&#x2713;</div><div class="cp-stat-lbl">Success</div></div>' +
+            '<div class="cp-stat"><div class="cp-stat-num">' + costLabel + '</div><div class="cp-stat-lbl">Cost</div></div>' +
+            (data.cost.capability > 0
+              ? '<div class="cp-stat"><div class="cp-stat-num">' + fmt(data.cost.capability) + '</div><div class="cp-stat-lbl">Capability</div></div>' +
+                '<div class="cp-stat"><div class="cp-stat-num">' + fmt(data.cost.fee) + '</div><div class="cp-stat-lbl">Protocol Fee</div></div>'
+              : '') +
+            (data.proof?.txid
+              ? '<div class="cp-stat"><div class="cp-stat-num" style="font-size:.85rem;">' +
+                copyable(data.proof.txid, 12) +
+                '</div><div class="cp-stat-lbl">TX ID</div></div>'
+              : '');
+        }
+
+        // Output details
+        if (outputEl) {
+          let output = '';
+          if (data.result) {
+            output += 'Result: ' + (typeof data.result === 'string' ? data.result : pretty(data.result)) + '\n';
+          }
+          if (data.receipt) {
+            output += '\nReceipt ID: ' + (data.receipt.receiptId || '-') + '\n';
+            output += 'Provider:   ' + short(data.receipt.provider, 24) + '\n';
+            if (data.receipt.signature) {
+              output += 'Signature:  ' + short(data.receipt.signature, 32) + '\n';
+            }
+          }
+          if (data.proof?.whatsonchain) {
+            output += '\nView on chain: ' + data.proof.whatsonchain + '\n';
+          }
+          if (data.freeTrial) {
+            output += '\nThis was a free trial — your first call to any Claw is free.\n';
+            output += 'Next call will use the full 402 payment flow.\n';
+          }
+          outputEl.textContent = output.trim();
+        }
+
+        // Refresh budget
+        loadDemoStatus();
+      }
+    } catch (err) {
+      // Show error
+      if (errorEl) {
+        errorEl.style.display = 'block';
+        errorEl.textContent = err.message || 'Demo failed. Try again later.';
+      }
+      // Use structured error data from postJSON (err.data preserves full response)
+      const errData = err.data || {};
+      if (errData.steps) {
+        Object.entries(errData.steps).forEach(([k, v]) => {
+          setDemoStep('ds-' + k, v === 'error' ? 'error' : (v === 'ok' ? 'ok' : v));
+        });
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   // ── Init ─────────────────────────────────────────────────────
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -1698,6 +1836,9 @@
     initStarPicker();
     applyCapabilityTemplate();
 
+    // Load demo status (no connection required)
+    loadDemoStatus();
+
     // Brain approval delegation
     document.addEventListener('click', function(ev) {
       const btn = ev.target.closest('.mc-approval-btn');
@@ -1706,6 +1847,7 @@
     });
 
     el('btnConnect').addEventListener('click', connect);
+    if (el('btnTryDemo')) el('btnTryDemo').addEventListener('click', tryDemo);
     el('btnTestHealth').addEventListener('click', testHealth);
     el('btnLoadCourses').addEventListener('click', loadCourses);
     el('btnLoadCourse').addEventListener('click', loadCourse);

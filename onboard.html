@@ -329,6 +329,21 @@
     .mc-help-tip--right { left: auto; right: 0; transform: none; }
     .mc-help-tip--right::after { left: auto; right: 10px; transform: none; }
 
+    /* Demo step indicators */
+    .demo-step { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); transition: color .2s; }
+    .demo-step.active { color: #f5a623; }
+    .demo-step.ok { color: #27c93f; }
+    .demo-step.error { color: #e63946; }
+    .demo-step.skipped { color: var(--muted); opacity: .5; }
+    .demo-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); transition: background .2s, box-shadow .2s;
+      display: inline-block;
+    }
+    .demo-step.active .demo-dot { background: #f5a623; box-shadow: 0 0 6px rgba(245,166,35,.5); }
+    .demo-step.ok .demo-dot { background: #27c93f; box-shadow: 0 0 6px rgba(39,201,63,.5); }
+    .demo-step.error .demo-dot { background: #e63946; box-shadow: 0 0 6px rgba(230,57,70,.5); }
+
     @media (max-width: 768px) {
       .mc-header-top { flex-direction: column; align-items: flex-start; gap: .35rem; }
       .mc-metrics-bar { gap: .6rem; padding: .45rem .75rem; }
@@ -556,6 +571,50 @@
             <span class="mc-freshness-dot"></span>
             <span class="mc-freshness-label" id="freshnessLabel">Just now</span>
           </div>
+        </div>
+
+        <!-- Try a Claw — zero-config demo -->
+        <div class="cp-card" id="demoCard" style="margin-bottom:1.25rem;border-color:var(--accent);border-width:1px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:.75rem;">
+            <div>
+              <h3 style="margin:0;font-size:1.05rem;color:var(--text);">Try a Claw</h3>
+              <p style="margin:.25rem 0 0;font-size:.85rem;color:var(--muted);">See a real BSV micropayment in action. No wallet needed — we'll pay for this one.</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:.75rem;">
+              <span class="cp-badge" id="demoBudgetBadge" style="font-size:.72rem;color:var(--muted);background:rgba(255,255,255,.05);"></span>
+              <button class="btn btn-primary" id="btnTryDemo" style="white-space:nowrap;">Try it now</button>
+            </div>
+          </div>
+
+          <!-- Step indicator -->
+          <div id="demoSteps" style="display:none;margin-bottom:.75rem;">
+            <div style="display:flex;align-items:center;gap:.5rem;font-size:.78rem;font-family:'IBM Plex Mono',monospace;">
+              <span class="demo-step" id="ds-challenge">
+                <span class="demo-dot"></span> Challenge
+              </span>
+              <span style="color:var(--muted);">&rarr;</span>
+              <span class="demo-step" id="ds-pay">
+                <span class="demo-dot"></span> Pay
+              </span>
+              <span style="color:var(--muted);">&rarr;</span>
+              <span class="demo-step" id="ds-execute">
+                <span class="demo-dot"></span> Execute
+              </span>
+              <span style="color:var(--muted);">&rarr;</span>
+              <span class="demo-step" id="ds-receipt">
+                <span class="demo-dot"></span> Receipt
+              </span>
+            </div>
+          </div>
+
+          <!-- Result area -->
+          <div id="demoResult" style="display:none;">
+            <div class="cp-stats" id="demoStats" style="margin-bottom:.6rem;"></div>
+            <div class="cp-output" id="demoOutput" style="max-height:180px;font-size:.78rem;"></div>
+          </div>
+
+          <!-- Error area -->
+          <div id="demoError" style="display:none;padding:.6rem .85rem;background:rgba(230,57,70,.08);border:1px solid rgba(230,57,70,.25);border-radius:8px;font-size:.82rem;color:#e63946;"></div>
         </div>
 
         <!-- Connection form -->

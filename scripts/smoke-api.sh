@@ -91,4 +91,10 @@ expect_post_status "/api/openclaw/agents/message/send" "501"
 expect_post_status "/api/openclaw/agents/oracle/attest" "501"
 expect_post_status "/api/openclaw/agents/oracle/register" "501"
 
-echo "Smoke test passed on port ${PORT} (including Phase D gating checks)."
+# Demo feature: status endpoint should always return 200
+expect_status "/api/demo/status" "200"
+
+# Demo feature: try endpoint returns 503 in smoke mode (no funded wallet)
+expect_post_status "/api/demo/try" "503"
+
+echo "Smoke test passed on port ${PORT} (including Phase D gating + demo endpoint checks)."
