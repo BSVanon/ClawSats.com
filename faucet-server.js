@@ -573,15 +573,46 @@ async function bootstrapDemoWallet() {
       }
     });
 
-    // Extract tx as byte array for internalizeAction
-    const txBase64 = extractActionTxBase64(actionResult);
-    const txBytes = Array.from(Buffer.from(txBase64, 'base64'));
+    // Extract tx in AtomicBEEF format for internalizeAction.
+    // internalizeAction requires AtomicBEEF (starts with 01010101 + subject txid),
+    // NOT raw tx bytes. createAction returns AtomicBEEF in the 'tx' field.
+    let txBytes;
+    if (actionResult.tx) {
+      // tx field: AtomicBEEF — may be byte array or base64 string
+      if (Array.isArray(actionResult.tx)) {
+        txBytes = actionResult.tx;
+      } else if (typeof actionResult.tx === 'string') {
+        txBytes = Array.from(Buffer.from(actionResult.tx, 'base64'));
+      } else if (Buffer.isBuffer(actionResult.tx)) {
+        txBytes = Array.from(actionResult.tx);
+      } else {
+        txBytes = Array.from(actionResult.tx);
+      }
+    } else if (actionResult.rawTx) {
+      // rawTx is legacy raw tx bytes — not AtomicBEEF, but try anyway
+      console.warn('[DEMO] createAction returned rawTx instead of tx (AtomicBEEF). Internalization may fail.');
+      txBytes = Array.isArray(actionResult.rawTx)
+        ? actionResult.rawTx
+        : Array.from(Buffer.from(actionResult.rawTx));
+    } else {
+      throw new Error('createAction returned no tx data');
+    }
+
+    const txid = actionResult.txid || null;
+    console.log(`[DEMO] createAction succeeded: txid=${txid}, tx format=${actionResult.tx ? 'AtomicBEEF' : 'rawTx'}, ${txBytes.length} bytes`);
+
+    // Find the correct output index for our payment (should be 0 with randomizeOutputs: false)
+    let outputIndex = 0;
+    if (actionResult.outputs && Array.isArray(actionResult.outputs)) {
+      const found = actionResult.outputs.findIndex(o => o.satoshis === DEMO_BOOTSTRAP_SATS);
+      if (found >= 0) outputIndex = found;
+    }
 
     // Demo wallet internalizes the payment
-    await demoWallet.internalizeAction({
+    const internResult = await demoWallet.internalizeAction({
       tx: txBytes,
       outputs: [{
-        outputIndex: 0,
+        outputIndex,
         protocol: 'wallet payment',
         paymentRemittance: {
           derivationPrefix,
@@ -592,9 +623,21 @@ async function bootstrapDemoWallet() {
       description: 'Bootstrap funding from faucet'
     });
 
+    console.log(`[DEMO] internalizeAction result: ${JSON.stringify(internResult)}`);
+
+    // Verify the demo wallet now has spendable UTXOs
+    try {
+      const check = await demoWallet.listOutputs({ basket: 'default', limit: 5 });
+      const count = check && check.outputs ? check.outputs.length : 0;
+      const totalSats = check && check.outputs ? check.outputs.reduce((s, o) => s + (o.satoshis || 0), 0) : 0;
+      console.log(`[DEMO] Post-bootstrap balance check: ${count} UTXOs, ${totalSats} sats`);
+    } catch (e) {
+      console.warn(`[DEMO] Post-bootstrap balance check failed: ${e.message || e}`);
+    }
+
     console.log(`[DEMO] ✅ Bootstrap complete: ${DEMO_BOOTSTRAP_SATS} sats transferred to demo wallet.`);
-    if (actionResult.txid) {
-      console.log(`[DEMO]    txid: ${actionResult.txid}`);
+    if (txid) {
+      console.log(`[DEMO]    txid: ${txid}`);
     }
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
