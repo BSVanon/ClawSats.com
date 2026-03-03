@@ -106,6 +106,7 @@ const DEMO_DAILY_CAP_SATS = Math.max(0, parseInt(process.env.DEMO_DAILY_CAP_SATS
 const DEMO_TOTAL_CAP_SATS = Math.max(0, parseInt(process.env.DEMO_TOTAL_CAP_SATS || '10000', 10));
 const RATE_LIMIT_DEMO_PER_MIN = Math.max(1, parseInt(process.env.RATE_LIMIT_DEMO_PER_MIN || '3', 10));
 const DEMO_BUDGET_PATH = path.join(__dirname, 'demo-budget.json');
+const DEMO_BOOTSTRAP_SATS = Math.max(0, parseInt(process.env.DEMO_BOOTSTRAP_SATS || '500', 10));
 
 // ClawSats protocol constants (for building 402 payments)
 const FEE_IDENTITY_KEY = '0307102dc99293edba7f75bf881712652879c151b454ebf5d8e7a0ba07c4d17364';
@@ -517,6 +518,88 @@ async function initDemoWallet() {
     console.error(`[DEMO] ❌ Demo wallet init failed: ${msg}`);
     console.error(formatErr(err));
     fallbackDemoToFaucet('Falling back to shared faucet wallet for demos.');
+  }
+}
+
+// --- Demo wallet bootstrap (BRC-100 wallet-to-wallet transfer) ---
+
+async function bootstrapDemoWallet() {
+  // Only bootstrap if demo wallet is dedicated (not shared with faucet)
+  if (!DEMO_ROOT_KEY_HEX || !demoWalletReady || demoWallet === faucetWallet) return;
+  if (!walletReady || !faucetWallet) {
+    console.log('[DEMO] Bootstrap skipped: faucet wallet not ready.');
+    return;
+  }
+  if (DEMO_BOOTSTRAP_SATS <= 0) return;
+
+  // Check if demo wallet already has internal UTXOs
+  try {
+    const existing = await demoWallet.listOutputs({ basket: 'default', limit: 1 });
+    if (existing && existing.outputs && existing.outputs.length > 0) {
+      console.log('[DEMO] Demo wallet already has internal UTXOs — bootstrap not needed.');
+      return;
+    }
+  } catch {
+    // listOutputs may fail on fresh wallet — proceed with bootstrap
+  }
+
+  console.log(`[DEMO] Bootstrapping demo wallet with ${DEMO_BOOTSTRAP_SATS} sats from faucet...`);
+
+  try {
+    const crypto = require('crypto');
+    const derivationPrefix = crypto.randomBytes(12).toString('base64');
+    const derivationSuffix = 'bootstrap';
+
+    // Derive BRC-29 locking script: faucet pays to demo wallet's identity key
+    const lockingScript = await deriveBRC29LockingScript(
+      demoIdentityKey, derivationPrefix, derivationSuffix, faucetWallet
+    );
+
+    // Faucet wallet creates the payment tx
+    const actionResult = await faucetWallet.createAction({
+      description: `Bootstrap demo wallet (${DEMO_BOOTSTRAP_SATS} sats)`,
+      outputs: [{
+        satoshis: DEMO_BOOTSTRAP_SATS,
+        lockingScript,
+        outputDescription: 'Demo wallet bootstrap funding',
+        tags: ['clawsats-demo-bootstrap'],
+        basket: 'clawsats-demo-bootstrap'
+      }],
+      labels: ['clawsats-demo-bootstrap'],
+      options: {
+        signAndProcess: true,
+        acceptDelayedBroadcast: false,
+        randomizeOutputs: false
+      }
+    });
+
+    // Extract tx as byte array for internalizeAction
+    const txBase64 = extractActionTxBase64(actionResult);
+    const txBytes = Array.from(Buffer.from(txBase64, 'base64'));
+
+    // Demo wallet internalizes the payment
+    await demoWallet.internalizeAction({
+      tx: txBytes,
+      outputs: [{
+        outputIndex: 0,
+        protocol: 'wallet payment',
+        paymentRemittance: {
+          derivationPrefix,
+          derivationSuffix,
+          senderIdentityKey: faucetIdentityKey
+        }
+      }],
+      description: 'Bootstrap funding from faucet'
+    });
+
+    console.log(`[DEMO] ✅ Bootstrap complete: ${DEMO_BOOTSTRAP_SATS} sats transferred to demo wallet.`);
+    if (actionResult.txid) {
+      console.log(`[DEMO]    txid: ${actionResult.txid}`);
+    }
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    console.warn(`[DEMO] ⚠️  Bootstrap failed (non-fatal): ${msg}`);
+    console.warn('[DEMO]    Demo wallet may have insufficient funds until manually funded.');
   }
 }
 
@@ -2665,6 +2748,7 @@ async function main() {
   await initWallet();
   await initScholarshipWallet();
   await initDemoWallet();
+  await bootstrapDemoWallet();
   if (!SCHOLARSHIP_DISTRIBUTE_TOKEN) {
     if (process.env.NODE_ENV === 'production') {
       console.error('[STARTUP] FATAL: SCHOLARSHIP_DISTRIBUTE_TOKEN must be set in production. Set it in .env and restart.');
