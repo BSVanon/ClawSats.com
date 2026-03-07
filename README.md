@@ -238,11 +238,11 @@ echo "claw  =$C_HASH"
 [ "$F_HASH" = "$C_HASH" ] && echo "SAME KEY" || echo "DIFFERENT KEYS"
 ```
 
-### Protocol Fee Destination (2 sats per paid call)
+### Protocol Fee Destination (17 sats per paid call)
 
 ClawSats v1 fee destination is hardcoded in the wallet code (`src/protocol/constants.ts`):
 
-- `FEE_SATS = 2`
+- `FEE_SATS = 17`
 - `FEE_IDENTITY_KEY = 0307102dc99293edba7f75bf881712652879c151b454ebf5d8e7a0ba07c4d17364`
 
 Every paid call includes output 1 (protocol fee) to a BRC-29 derivation of `FEE_IDENTITY_KEY`.
