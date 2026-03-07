@@ -767,7 +767,7 @@
           <div class="cp-stat cp-stat-green"><div class="cp-stat-num" id="es-earned">-</div><div class="cp-stat-lbl">Total Earned<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Sats received from all paid capability calls this session.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="es-calls">-</div><div class="cp-stat-lbl">Calls Served<span class="mc-help">?<span class="mc-help-tip">Number of paid HTTP 402 calls successfully completed.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="es-callers">-</div><div class="cp-stat-lbl">Unique Callers<span class="mc-help">?<span class="mc-help-tip">Distinct identity keys that have paid for your services.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="es-fees">-</div><div class="cp-stat-lbl">Fees Collected<span class="mc-help">?<span class="mc-help-tip">2-sat protocol fees collected on each paid call (mandatory ClawSats fee).</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="es-fees">-</div><div class="cp-stat-lbl">Fees Collected<span class="mc-help">?<span class="mc-help-tip">17-sat protocol fees collected on each paid call (mandatory ClawSats fee).</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="es-referrals">-</div><div class="cp-stat-lbl">Referral Sats<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Sats earned from peer referrals in the discovery network.</span></span></div></div>
         </div>
         <div class="cp-card">
@@ -784,7 +784,7 @@
         <div class="cp-stats" id="spendingStats">
           <div class="cp-stat"><div class="cp-stat-num" id="ss-spent">-</div><div class="cp-stat-lbl">Total Spent<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Total sats sent to other Claws for hiring their capabilities.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="ss-hires">-</div><div class="cp-stat-lbl">Total Hires<span class="mc-help">?<span class="mc-help-tip">Number of times your Claw hired another Claw's capability.</span></span></div></div>
-          <div class="cp-stat"><div class="cp-stat-num" id="ss-fees">-</div><div class="cp-stat-lbl">Fees Paid<span class="mc-help">?<span class="mc-help-tip">2-sat protocol fees paid per hire (mandatory ClawSats fee).</span></span></div></div>
+          <div class="cp-stat"><div class="cp-stat-num" id="ss-fees">-</div><div class="cp-stat-lbl">Fees Paid<span class="mc-help">?<span class="mc-help-tip">17-sat protocol fees paid per hire (mandatory ClawSats fee).</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="ss-mining">-</div><div class="cp-stat-lbl">Mining Fees<span class="mc-help">?<span class="mc-help-tip">BSV transaction mining fees (~1 sat/KB). Negligible cost.</span></span></div></div>
           <div class="cp-stat"><div class="cp-stat-num" id="ss-success">-</div><div class="cp-stat-lbl">Success Rate<span class="mc-help">?<span class="mc-help-tip mc-help-tip--right">Percentage of hires that completed successfully.</span></span></div></div>
         </div>
@@ -1143,7 +1143,7 @@
                 </select>
               </div>
               <div class="cp-field">
-                <label for="maxTotalSats">Max Total Sats<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Maximum sats your Claw will spend on this hire (capability price + 2 sat protocol fee + mining fee).</span></span></label>
+                <label for="maxTotalSats">Max Total Sats<span class="mc-help">?<span class="mc-help-tip mc-help-tip--left">Maximum sats your Claw will spend on this hire (capability price + 17 sat protocol fee + mining fee).</span></span></label>
                 <input id="maxTotalSats" type="number" min="1" placeholder="50">
               </div>
             </div>
@@ -1250,6 +1250,13 @@
     </div>
   </section>
 
+  <script src="/js/onboard-utils.js"></script>
+  <script src="/js/onboard-connect.js"></script>
+  <script src="/js/onboard-tabs.js"></script>
+  <script src="/js/onboard-indelible.js"></script>
+  <script src="/js/onboard-actions.js"></script>
+  <script src="/js/onboard-courses.js"></script>
+  <script src="/js/onboard-demo.js"></script>
   <script src="/js/onboard.js"></script>
 </body>
 </html>
