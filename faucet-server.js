@@ -25,6 +25,8 @@ const { state, initWallet, initScholarshipWallet, initDemoWallet } = require('./
 const { remittances: scholarshipRemittances, replayScholarshipRemittances } = require('./lib/scholarship-retry');
 const { getPendingClaimEntries, settlePendingClaims, db: claimsDb, FAUCET_DISABLE_PENDING_REPLAY } = require('./lib/faucet-routes');
 const { SCHOLARSHIP_DISTRIBUTE_TOKEN } = require('./lib/scholarship');
+const anvilMesh = require('./lib/anvil-mesh');
+const { getEligibleClaws } = require('./lib/directory');
 
 // --- Config ---
 const PORT = parseInt(process.env.FAUCET_PORT || '3322', 10);
@@ -212,6 +214,13 @@ async function main() {
         console.error(`[FAUCET] Replay tick failed: ${tickErr && tickErr.message ? tickErr.message : String(tickErr)}`);
       }
     }, 60_000).unref();
+  }
+
+  // --- Anvil mesh bridge (protocol ambassador) ---
+  if (anvilMesh.init()) {
+    anvilMesh.start(() => getEligibleClaws(claimsDb)).catch(err => {
+      console.warn(`[ANVIL] Bridge start failed: ${err && err.message ? err.message : String(err)}`);
+    });
   }
 
   const DRIP_AMOUNT = 100;
